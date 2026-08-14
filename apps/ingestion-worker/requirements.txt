@@ -1,0 +1,6 @@
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+qdrant-client==1.11.*
+openai==1.51.*
+pydantic-settings==2.5.*
+unstructured[local-inference]==0.15.*

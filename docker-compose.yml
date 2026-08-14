@@ -1,0 +1,26 @@
+# Local dev only — exposes the RAG API on http://localhost:8080
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+
+  rag-api:
+    build: ./apps/rag-api
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      INGESTION_URL: http://ingestion-worker:8001
+    depends_on: [qdrant]
+
+  ingestion-worker:
+    build: ./apps/ingestion-worker
+    env_file: .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+    depends_on: [qdrant]
+
+  nginx:
+    image: nginx:alpine
+    volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["8080:80"]
+    depends_on: [rag-api]

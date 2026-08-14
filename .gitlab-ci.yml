@@ -1,0 +1,50 @@
+# Requires these masked/protected GitLab CI/CD variables (Settings > CI/CD > Variables):
+#   CI_REGISTRY_USER / CI_REGISTRY_PASSWORD  -> auto-provided for GitLab Container Registry
+#   GITOPS_TOKEN        -> PAT with write access to the gitops repo
+#   GITOPS_REPO_HOST     e.g. gitlab.com
+#   GITOPS_REPO_PATH     e.g. yourgroup/rag-platform-gitops
+stages:
+  - build
+  - deploy
+
+variables:
+  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  DOCKER_TLS_CERTDIR: "/certs"
+
+.build_template: &build
+  stage: build
+  image: docker:24
+  services: ["docker:24-dind"]
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker build -t "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG" "apps/$SERVICE"
+    - docker push "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+
+build-rag-api:
+  <<: *build
+  variables:
+    SERVICE: rag-api
+
+build-ingestion-worker:
+  <<: *build
+  variables:
+    SERVICE: ingestion-worker
+
+deploy-gitops:
+  stage: deploy
+  image: alpine/git
+  needs: ["build-rag-api", "build-ingestion-worker"]
+  script:
+    - git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
+    - cd gitops
+    - VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"
+    - sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"
+    - sed -i "s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#" "$VALUES_FILE"
+    - git config user.email "ci@gitlab.local"
+    - git config user.name "gitlab-ci"
+    - git commit -am "chore: bump ${CI_COMMIT_BRANCH} image tag to ${IMAGE_TAG}" || echo "nothing to commit"
+    - git push origin HEAD:main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
