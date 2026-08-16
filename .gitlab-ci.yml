@@ -37,14 +37,14 @@ deploy-gitops:
   image: alpine/git
   needs: ["build-rag-api", "build-ingestion-worker"]
   script:
-    - git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
+    - 'git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops'
     - cd gitops
-    - VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"
-    - sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"
-    - sed -i "s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#" "$VALUES_FILE"
-    - git config user.email "ci@gitlab.local"
-    - git config user.name "gitlab-ci"
-    - git commit -am "chore: bump ${CI_COMMIT_BRANCH} image tag to ${IMAGE_TAG}" || echo "nothing to commit"
+    - 'VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"'
+    - 'sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"'
+    - 'sed -i "s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#" "$VALUES_FILE"'
+    - 'git config user.email "ci@gitlab.local"'
+    - 'git config user.name "gitlab-ci"'
+    - 'git commit -am "chore: bump ${CI_COMMIT_BRANCH} image tag to ${IMAGE_TAG}" || echo "nothing to commit"'
     - git push origin HEAD:main
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'

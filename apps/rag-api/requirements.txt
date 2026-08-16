@@ -6,3 +6,4 @@ qdrant-client==1.11.*
 openai==1.51.*
 pydantic-settings==2.5.*
 httpx==0.27.*
+python-multipart==0.0.*

@@ -1,7 +1,7 @@
 from typing import TypedDict
 from langgraph.graph import StateGraph, END
 from .qdrant_client import search
-from .github_models import embed, chat
+from .gemini_client import embed, chat
 
 
 class RAGState(TypedDict):
