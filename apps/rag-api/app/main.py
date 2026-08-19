@@ -11,10 +11,6 @@ class Query(BaseModel):
     question: str
 
 
-class IngestRequest(BaseModel):
-    source_path: str
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -27,9 +23,9 @@ def query(q: Query):
 
 
 @app.post("/ingest")
-def ingest(req: IngestRequest):
-    """Ingest a file already present on the ingestion-worker's filesystem."""
-    r = httpx.post(f"{settings.ingestion_url}/process", json=req.dict(), timeout=120)
+def ingest():
+    """Batch-ingest every file dropped into the ingestion-worker's mounted /data volume."""
+    r = httpx.post(f"{settings.ingestion_url}/process", timeout=600)
     r.raise_for_status()
     return r.json()
 

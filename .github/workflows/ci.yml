@@ -1,0 +1,67 @@
+# Mirrors .gitlab-ci.yml but pushes images to ghcr.io instead of the GitLab
+# Container Registry. Both pipelines commit to the same GitOps repo, so they
+# can run side by side without conflict.
+#
+# Required repo secrets (Settings > Secrets and variables > Actions):
+#   GITOPS_TOKEN       -> GitLab PAT/Project Access Token with write_repository scope
+#   GITOPS_REPO_HOST    e.g. gitlab.com
+#   GITOPS_REPO_PATH    e.g. yourgroup/rag-platform-gitops
+# GITHUB_TOKEN (pushing to ghcr.io) is auto-provided, no setup needed.
+
+name: CI
+
+on:
+  push:
+    branches: [main, test]
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/rag-platform
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [rag-api, ingestion-worker]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/${{ matrix.service }}
+          push: true
+          tags: ${{ env.IMAGE_BASE }}/${{ matrix.service }}:${{ env.IMAGE_TAG }}
+
+  deploy-gitops:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone GitOps repo and bump image tag
+        env:
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          GITOPS_REPO_HOST: ${{ secrets.GITOPS_REPO_HOST }}
+          GITOPS_REPO_PATH: ${{ secrets.GITOPS_REPO_PATH }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
+          cd gitops
+          VALUES_FILE="charts/rag-platform/values-${BRANCH}.yaml"
+          sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"
+          sed -i "s#registry:.*#registry: \"${IMAGE_BASE}\"#" "$VALUES_FILE"
+          git config user.email "ci@github-actions.local"
+          git config user.name "github-actions"
+          git commit -am "chore: bump ${BRANCH} image tag to ${IMAGE_TAG} (via GitHub Actions)" || echo "nothing to commit"
+          git push origin HEAD:main

@@ -32,9 +32,19 @@ Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
    `GEMINI_API_KEY` (free key from https://aistudio.google.com/app/apikey).
    `docker compose up --build` then hit `http://localhost:8080/query`.
 
-2. GitLab CI/CD variables (masked/protected), on the **app** repo:
+2. CI/CD variables/secrets on the **app** repo — set these on whichever remote(s)
+   you actually push to:
+
+   **GitLab** (Settings > CI/CD > Variables, masked + protected):
    - `GITOPS_TOKEN`, `GITOPS_REPO_HOST`, `GITOPS_REPO_PATH`
    - (Container Registry vars are auto-provided by GitLab)
+
+   **GitHub** (Settings > Secrets and variables > Actions), if mirroring this repo
+   to GitHub too:
+   - `GITOPS_TOKEN` — same GitLab PAT/Project Access Token as above (`write_repository`)
+   - `GITOPS_REPO_HOST`, `GITOPS_REPO_PATH` — same values as above
+   - Pushing to `ghcr.io` needs no extra secret — GitHub Actions' built-in
+     `GITHUB_TOKEN` covers it automatically.
 
 3. k3s secret (create once per namespace, keys never live in git):
    ```
@@ -46,7 +56,9 @@ Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
      --from-literal=GEMINI_API_KEY=xxxx
    ```
 
-4. Push `gitops/charts/rag-platform` and `gitops/argocd` to your GitOps repo, then:
+4. Push `gitops/charts/rag-platform`, `gitops/argocd`, and `gitops/README.md` to
+   your GitOps repo — see `gitops/README.md` for the full first-time setup checklist
+   (placeholders to replace, secrets, Argo CD repo registration). Then:
    ```
    kubectl apply -f argocd/application-test.yaml
    kubectl apply -f argocd/application-main.yaml
@@ -71,8 +83,17 @@ Ingest a document straight from your machine (PDF, DOCX, PNG/JPG, or TXT/MD):
 curl -X POST http://rag.local/ingest/upload -F 'file=@/path/to/document.pdf'
 ```
 
-Alternatively, if the file is already on a volume mounted into the `ingestion-worker`
-pod, ingest by path instead:
+Alternatively, batch-ingest every file in the documents directory on the k3s node
+(default `/srv/rag-platform/documents`, configurable via `ingestionWorker.hostPath`
+in the Helm chart — see `gitops/README.md`). Drop files in (subdirectories are
+walked too), then trigger a batch run — no path argument needed, it processes
+everything it finds:
 ```
-curl -X POST http://rag.local/ingest -d '{"source_path":"/data/file.pdf"}' -H 'Content-Type: application/json'
+curl -X POST http://rag.local/ingest
 ```
+Response includes a per-file chunk count and any files that failed to parse:
+```json
+{"files_ingested": 3, "chunks_per_file": {"reports/q3.pdf": 12}, "files_failed": {}}
+```
+For local `docker compose` dev, drop files into `./documents/` in this repo instead
+(bind-mounted to the same place).
