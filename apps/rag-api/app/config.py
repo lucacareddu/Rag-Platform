@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # Local LLM fallback (used only for chat/generation when Gemini errors —
     # embeddings always stay on Gemini so Qdrant vector dimensions stay consistent)
     ollama_base_url: str = "http://ollama:11434/v1"
-    ollama_model: str = "phi4-mini"
+    ollama_model: str = "gemma2:2b"
 
     # LangSmith tracing (optional — no-ops if langsmith_api_key is unset)
     langsmith_api_key: str = ""

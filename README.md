@@ -36,7 +36,7 @@ timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optiona
    `LANGSMITH_API_KEY` is optional (free account at https://smith.langchain.com) —
    leave blank to skip tracing entirely. No key needed for Ollama, it's local.
    `docker compose up --build` then hit `http://localhost:8080/query`. First
-   startup pulls the Ollama model (~3.2GB, phi4-mini) — this can take a few minutes.
+   startup pulls the Ollama model (~1.7GB, gemma2:2b) — this can take a minute or two.
 
 2. CI/CD variables/secrets on the **app** repo — set these on whichever remote(s)
    you actually push to:
@@ -117,15 +117,17 @@ automatically retries the same request against a local Ollama model instead, so
 always go through Gemini (switching embedding models would break similarity search
 against existing Qdrant vectors, so there's no embeddings fallback).
 
-Default model is **phi4-mini** (~3.2GB at Q4 quantization) — chosen to fit a 4GB
-VRAM / 8GB total RAM budget alongside the other 3 pods. If you have less headroom
-free at runtime, swap `ollama.model` in `values.yaml` (or `OLLAMA_MODEL` in `.env`
-for local dev) for something smaller, e.g. `gemma2:2b`.
+Default model is **gemma2:2b** (~1.7GB at Q4 quantization) — the smallest model
+that's still genuinely usable for RAG answer generation, chosen to leave real
+headroom in an 8GB total RAM budget shared with the other 3 pods. If you have
+more headroom and want better fallback quality, swap `ollama.model` in
+`values.yaml` (or `OLLAMA_MODEL` in `.env` for local dev) for something larger,
+e.g. `phi4-mini` (~3.2GB, stronger reasoning).
 
 GPU passthrough is **not** configured by default (`ollama.gpu: false`) — Ollama
 runs on CPU unless you've set up the NVIDIA Container Toolkit (Docker Compose) or
-the NVIDIA device plugin (k3s) yourself; CPU inference on phi4-mini is slower but
-functional. First pull of the model (either environment) takes a few minutes and
+the NVIDIA device plugin (k3s) yourself; CPU inference on gemma2:2b is slower but
+functional. First pull of the model (either environment) takes a minute or two and
 is cached afterward (Docker named volume / k3s PVC).
 
 ## Monitoring with LangSmith
