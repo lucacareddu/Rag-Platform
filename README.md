@@ -1,11 +1,14 @@
 # Local, Free RAG Platform
 
 GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
-Agentic RAG via LangGraph. LLM + embeddings via the Gemini API (free tier, OpenAI-compatible).
-Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
+Agentic RAG via LangGraph. LLM via the Gemini API (free tier, OpenAI-compatible),
+with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5xx,
+timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optional).
+4 pods: `rag-api`, `ingestion-worker`, `qdrant`, `ollama`.
 
 ## Repo layout
-- `apps/rag-api` — FastAPI + LangGraph agentic RAG (retrieve -> generate), calls Gemini.
+- `apps/rag-api` — FastAPI + LangGraph agentic RAG (retrieve -> generate), calls
+  Gemini with Ollama fallback for chat, Gemini-only for embeddings.
 - `apps/ingestion-worker` — OCR/parsing (pdfplumber/pytesseract/python-docx) + embedding + upsert into Qdrant.
 - `gitops/` — copy this into your **separate** GitOps repo (chart + Argo CD Applications).
 - `nginx/`, `docker-compose.yml` — local exposure/testing without k3s.
@@ -30,7 +33,10 @@ Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
 
 1. Local dev (no k3s needed for this step): `cp .env.example .env` and fill in
    `GEMINI_API_KEY` (free key from https://aistudio.google.com/app/apikey).
-   `docker compose up --build` then hit `http://localhost:8080/query`.
+   `LANGSMITH_API_KEY` is optional (free account at https://smith.langchain.com) —
+   leave blank to skip tracing entirely. No key needed for Ollama, it's local.
+   `docker compose up --build` then hit `http://localhost:8080/query`. First
+   startup pulls the Ollama model (~3.2GB, phi4-mini) — this can take a few minutes.
 
 2. CI/CD variables/secrets on the **app** repo — set these on whichever remote(s)
    you actually push to:
@@ -50,11 +56,14 @@ Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
    ```
    kubectl create ns rag-platform
    kubectl create secret generic rag-secrets -n rag-platform \
-     --from-literal=GEMINI_API_KEY=xxxx
+     --from-literal=GEMINI_API_KEY=xxxx \
+     --from-literal=LANGSMITH_API_KEY=xxxx
    kubectl create ns rag-platform-test
    kubectl create secret generic rag-secrets -n rag-platform-test \
-     --from-literal=GEMINI_API_KEY=xxxx
+     --from-literal=GEMINI_API_KEY=xxxx \
+     --from-literal=LANGSMITH_API_KEY=xxxx
    ```
+   `LANGSMITH_API_KEY` is optional — omit the flag entirely to run without tracing.
 
 4. Push `gitops/charts/rag-platform`, `gitops/argocd`, and `gitops/README.md` to
    your GitOps repo — see `gitops/README.md` for the full first-time setup checklist
@@ -98,3 +107,34 @@ Response includes a per-file chunk count and any files that failed to parse:
 ```
 For local `docker compose` dev, drop files into `./documents/` in this repo instead
 (bind-mounted to the same place).
+
+## Gemini fallback to local Ollama
+
+`rag-api` calls Gemini for chat/generation first. If that call raises **any**
+error — rate limit (429), server error (5xx), timeout, network failure — it
+automatically retries the same request against a local Ollama model instead, so
+`/query` keeps working even if the Gemini free tier is throttling you. Embeddings
+always go through Gemini (switching embedding models would break similarity search
+against existing Qdrant vectors, so there's no embeddings fallback).
+
+Default model is **phi4-mini** (~3.2GB at Q4 quantization) — chosen to fit a 4GB
+VRAM / 8GB total RAM budget alongside the other 3 pods. If you have less headroom
+free at runtime, swap `ollama.model` in `values.yaml` (or `OLLAMA_MODEL` in `.env`
+for local dev) for something smaller, e.g. `gemma2:2b`.
+
+GPU passthrough is **not** configured by default (`ollama.gpu: false`) — Ollama
+runs on CPU unless you've set up the NVIDIA Container Toolkit (Docker Compose) or
+the NVIDIA device plugin (k3s) yourself; CPU inference on phi4-mini is slower but
+functional. First pull of the model (either environment) takes a few minutes and
+is cached afterward (Docker named volume / k3s PVC).
+
+## Monitoring with LangSmith
+
+Every chat/embedding call is traced via LangSmith's `@traceable` decorator (works
+independently of LangGraph's own tracing, since the LLM clients use the raw
+`openai` SDK). Traces show which provider actually served each request — you'll
+see `chat-gemini` spans normally, and `chat-ollama-fallback` spans whenever the
+fallback triggers, so you can monitor how often you're hitting Gemini's rate limit.
+
+Set `LANGSMITH_API_KEY` to enable it; leave blank to disable tracing with zero
+code changes. Free tier account: https://smith.langchain.com
