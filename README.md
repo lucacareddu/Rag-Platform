@@ -65,9 +65,10 @@ Only 3 pods: `rag-api`, `ingestion-worker`, `qdrant`.
    ```
 
 ## Flow
-Push to `test` or `main` branch of the **app** repo -> GitLab CI builds/pushes both
-images -> CI clones the GitOps repo, bumps `values-<branch>.yaml` image tag, commits
--> Argo CD (auto-sync) rolls out the new tag to the matching namespace on k3s.
+Push to `test` or `main` branch of the **app** repo -> CI (GitLab CI and/or GitHub
+Actions, whichever remote you push to) builds/pushes both images -> the pipeline
+clones the GitOps repo, bumps `values-<branch>.yaml` image registry/tag, commits
+-> Argo CD (auto-sync) rolls out the new image to the matching namespace on k3s.
 
 ## Query & ingest documents
 Add `rag.local` (or `rag-test.local`) to `/etc/hosts` pointing at your k3s node IP,
