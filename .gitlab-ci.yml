@@ -32,10 +32,15 @@ build-ingestion-worker:
   variables:
     SERVICE: ingestion-worker
 
+build-chat-ui:
+  <<: *build
+  variables:
+    SERVICE: chat-ui
+
 deploy-gitops:
   stage: deploy
   image: alpine:3.20
-  needs: ["build-rag-api", "build-ingestion-worker"]
+  needs: ["build-rag-api", "build-ingestion-worker", "build-chat-ui"]
   before_script:
     - apk add --no-cache git
   script:

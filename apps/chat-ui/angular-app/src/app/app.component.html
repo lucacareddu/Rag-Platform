@@ -1,0 +1,81 @@
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">RAG</span>
+      <span class="brand-sub">local knowledge chat</span>
+    </div>
+    <button class="upload-btn" (click)="triggerUpload()" [disabled]="uploadState === 'uploading'">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M8 11V2M8 2L4.5 5.5M8 2l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M2.5 11v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V11" stroke-linecap="round"/>
+      </svg>
+      <span>{{ uploadState === 'uploading' ? 'Uploading…' : 'Add document' }}</span>
+    </button>
+    <input
+      #fileInput
+      type="file"
+      class="visually-hidden"
+      accept=".pdf,.docx,.png,.jpg,.jpeg,.tiff,.bmp,.txt,.md"
+      (change)="onFileSelected($event)"
+    />
+  </header>
+
+  @if (uploadState !== 'idle') {
+    <div class="upload-banner" [class.upload-banner--error]="uploadState === 'error'">
+      @if (uploadState === 'uploading') {
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Ingesting {{ uploadFileName }}…</span>
+      } @else {
+        <span>{{ uploadResultText }}</span>
+        <button class="banner-dismiss" (click)="dismissUploadStatus()" aria-label="Dismiss">×</button>
+      }
+    </div>
+  }
+
+  <main class="thread">
+    @if (messages.length === 0) {
+      <div class="empty-state">
+        <p class="empty-title">Ask something about your documents.</p>
+        <p class="empty-sub">Upload a file first if the knowledge base is empty.</p>
+      </div>
+    }
+
+    @for (message of messages; track $index) {
+      <div class="message-row" [class.message-row--user]="message.role === 'user'">
+        <div
+          class="bubble"
+          [class.bubble--user]="message.role === 'user'"
+          [class.bubble--assistant]="message.role === 'assistant'"
+          [class.bubble--error]="message.role === 'error'"
+        >
+          {{ message.text }}
+        </div>
+      </div>
+    }
+
+    @if (sending) {
+      <div class="message-row">
+        <div class="bubble bubble--assistant bubble--pending">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+      </div>
+    }
+
+    <div #scrollAnchor></div>
+  </main>
+
+  <footer class="composer">
+    <textarea
+      class="composer-input"
+      placeholder="Ask a question… (Enter to send, Shift+Enter for a new line)"
+      rows="1"
+      [(ngModel)]="draft"
+      (keydown.enter)="onEnter($event)"
+    ></textarea>
+    <button class="send-btn" (click)="send()" [disabled]="sending || !draft.trim()" aria-label="Send">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M2 8h11.5M9 3.5 13.5 8 9 12.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+  </footer>
+</div>

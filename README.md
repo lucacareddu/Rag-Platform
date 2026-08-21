@@ -4,12 +4,18 @@ GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
 Agentic RAG via LangGraph. LLM via the Gemini API (free tier, OpenAI-compatible),
 with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5xx,
 timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optional).
-4 pods: `rag-api`, `ingestion-worker`, `qdrant`, `ollama`.
+5 pods: `rag-api`, `ingestion-worker`, `qdrant`, `ollama`, `chat-ui` (Django,
+serving a built Angular chat interface and proxying its API calls to `rag-api`
+server-side — the browser never talks to `rag-api` directly, so there's no CORS
+setup anywhere in this stack).
 
 ## Repo layout
 - `apps/rag-api` — FastAPI + LangGraph agentic RAG (retrieve -> generate), calls
   Gemini with Ollama fallback for chat, Gemini-only for embeddings.
 - `apps/ingestion-worker` — OCR/parsing (pdfplumber/pytesseract/python-docx) + embedding + upsert into Qdrant.
+- `apps/chat-ui` — Django app that serves the Angular chat UI (built at Docker
+  build time, in `apps/chat-ui/angular-app/`) and proxies `/api/query` and
+  `/api/ingest/upload` to `rag-api` server-side.
 - `gitops/` — copy this into your **separate** GitOps repo (chart + Argo CD Applications).
 - `nginx/`, `docker-compose.yml` — local exposure/testing without k3s.
 - `.gitlab-ci.yml` — builds/pushes images, then bumps image tag in the GitOps repo.
@@ -35,8 +41,10 @@ timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optiona
    `GEMINI_API_KEY` (free key from https://aistudio.google.com/app/apikey).
    `LANGSMITH_API_KEY` is optional (free account at https://smith.langchain.com) —
    leave blank to skip tracing entirely. No key needed for Ollama, it's local.
-   `docker compose up --build` then hit `http://localhost:8080/query`. First
-   startup pulls the Ollama model (~1.7GB, gemma2:2b) — this can take a minute or two.
+   `docker compose up --build` then open `http://localhost:4200` for the chat UI,
+   or hit the API directly at `http://localhost:8080/query` (via nginx) or
+   `http://localhost:8000/query` (direct). First startup pulls the Ollama model
+   (~1.7GB, gemma2:2b) — this can take a minute or two.
 
 2. CI/CD variables/secrets on the **app** repo — set these on whichever remote(s)
    you actually push to:
@@ -64,6 +72,10 @@ timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optiona
      --from-literal=LANGSMITH_API_KEY=xxxx
    ```
    `LANGSMITH_API_KEY` is optional — omit the flag entirely to run without tracing.
+   You can optionally also add `--from-literal=DJANGO_SECRET_KEY=<random-string>`
+   for the chat UI's Django backend — it falls back to an insecure dev key if
+   omitted, which is fine here since this proxy has no sessions/auth/cookies that
+   would depend on it, but a real value is good practice regardless.
 
 4. Push `gitops/charts/rag-platform`, `gitops/argocd`, and `gitops/README.md` to
    your GitOps repo — see `gitops/README.md` for the full first-time setup checklist
@@ -107,6 +119,37 @@ Response includes a per-file chunk count and any files that failed to parse:
 ```
 For local `docker compose` dev, drop files into `./documents/` in this repo instead
 (bind-mounted to the same place).
+
+## Chat UI
+
+`apps/chat-ui` is a Django app that serves a built Angular chat window plus an
+"Add document" button, and proxies their API calls to `rag-api` itself:
+
+- Angular calls `/api/query` and `/api/ingest/upload` — same origin, relative paths.
+- Django's `ragproxy` app forwards those server-side to `rag-api`'s `/query` and
+  `/ingest/upload` (`RAG_API_URL` env var, defaults to `http://rag-api:8000`).
+- The browser never talks to `rag-api` directly, so there's **no CORS
+  configuration anywhere** in this stack — one less moving part than a
+  browser-calls-the-API-directly setup would need.
+- Django also serves the Angular static files (via WhiteNoise) and falls back to
+  `index.html` for any unmatched path, so the Angular app loads correctly however
+  the URL is reached.
+
+**Local dev:** `docker compose up --build` and open `http://localhost:4200`.
+
+**k3s:** the UI is served from its own Ingress host —
+add it to `/etc/hosts` pointing at your k3s node IP:
+```
+<node-ip>  rag-chat.local
+```
+(swap in `rag-chat-test.local` for the test namespace). Open
+`http://rag-chat.local` in a browser. `rag.local` (routing straight to `rag-api`)
+is still available too, for direct `curl`-based testing as shown above.
+
+**Rebuilding after an Angular change:** the Angular app lives in
+`apps/chat-ui/angular-app/` and is built as part of `apps/chat-ui`'s own Docker
+build (multi-stage: Node builds Angular, then it's copied into the Django image)
+— there's no separate image or deploy step for the frontend.
 
 ## Gemini fallback to local Ollama
 

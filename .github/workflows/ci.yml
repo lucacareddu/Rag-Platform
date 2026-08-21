@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [rag-api, ingestion-worker]
+        service: [rag-api, ingestion-worker, chat-ui]
     permissions:
       contents: read
       packages: write
