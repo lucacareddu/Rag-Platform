@@ -4,7 +4,7 @@ WORKDIR /angular
 COPY angular-app/package.json angular-app/package-lock.json ./
 RUN npm ci
 COPY angular-app .
-RUN npm run build
+RUN npm run build -- --deploy-url=/static/
 
 # Stage 2: Django, serving the built Angular files + proxying to rag-api
 FROM python:3.11-slim
