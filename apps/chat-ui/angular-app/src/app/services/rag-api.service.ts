@@ -11,7 +11,7 @@ export interface UploadResponse {
 }
 
 // Same-origin calls to the Django proxy that serves this app — Django forwards
-// them to rag-api server-side, so no CORS or runtime API URL config is needed.
+// them to rag-api server-side.
 @Injectable({ providedIn: 'root' })
 export class RagApiService {
   constructor(private http: HttpClient) {}

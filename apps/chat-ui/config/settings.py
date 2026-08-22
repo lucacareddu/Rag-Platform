@@ -7,8 +7,7 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-only-insecure-key")
 DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",") if h.strip()]
 
-# rag-api is only ever called server-side from here, never from the browser —
-# no CORS setup needed anywhere in this stack.
+# rag-api is only ever called server-side from here, never from the browser.
 RAG_API_URL = os.environ.get("RAG_API_URL", "http://rag-api:8000")
 
 # Minimal app set: this is a stateless proxy + static file server, no auth,

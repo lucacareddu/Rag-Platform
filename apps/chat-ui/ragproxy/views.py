@@ -9,7 +9,7 @@ from django.views.decorators.http import require_POST
 @require_POST
 def query(request):
     """Proxies to rag-api's /query. Angular calls this same-origin path instead
-    of rag-api directly, so no CORS setup is needed anywhere."""
+    of rag-api directly."""
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:

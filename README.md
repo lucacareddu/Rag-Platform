@@ -6,8 +6,7 @@ with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5x
 timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optional).
 5 pods: `rag-api`, `ingestion-worker`, `qdrant`, `ollama`, `chat-ui` (Django,
 serving a built Angular chat interface and proxying its API calls to `rag-api`
-server-side — the browser never talks to `rag-api` directly, so there's no CORS
-setup anywhere in this stack).
+server-side — the browser never talks to `rag-api` directly).
 
 ## Repo layout
 - `apps/rag-api` — FastAPI + LangGraph agentic RAG (retrieve -> generate), calls
@@ -128,9 +127,6 @@ For local `docker compose` dev, drop files into `./documents/` in this repo inst
 - Angular calls `/api/query` and `/api/ingest/upload` — same origin, relative paths.
 - Django's `ragproxy` app forwards those server-side to `rag-api`'s `/query` and
   `/ingest/upload` (`RAG_API_URL` env var, defaults to `http://rag-api:8000`).
-- The browser never talks to `rag-api` directly, so there's **no CORS
-  configuration anywhere** in this stack — one less moving part than a
-  browser-calls-the-API-directly setup would need.
 - Django also serves the Angular static files (via WhiteNoise) and falls back to
   `index.html` for any unmatched path, so the Angular app loads correctly however
   the URL is reached.
