@@ -164,12 +164,24 @@ more headroom and want better fallback quality, swap `ollama.model` in
 e.g. `phi4-mini` (~3.2GB, stronger reasoning).
 
 GPU passthrough is **not** configured by default (`ollama.gpu: false`) — Ollama
-runs on CPU unless enabled. For k3s, this chart includes the `RuntimeClass` and
-NVIDIA device plugin needed — see `gitops/README.md`'s "Enabling GPU inference"
-section for the node-level driver/toolkit setup steps that can't be automated by
-Helm. For Docker Compose, set up the NVIDIA Container Toolkit and add a `deploy.
-resources.reservations.devices` GPU block to the `ollama` service yourself. CPU
-inference on gemma2:2b is slower but functional either way. First pull of the
+runs on CPU unless enabled.
+
+**k3s**: this chart includes the `RuntimeClass` and NVIDIA device plugin needed —
+see `gitops/README.md`'s "Enabling GPU inference" section for the node-level
+driver/toolkit setup steps that can't be automated by Helm.
+
+**Docker Compose**: install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+on the Docker host first, then run with the GPU overlay:
+```
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+```
+`docker-compose.gpu.yml` is a separate file, not merged into the base
+`docker-compose.yml`, because the GPU reservation makes `docker compose up` fail
+outright on a machine with no NVIDIA driver registered — it doesn't gracefully
+fall back to CPU. Keeping it as an opt-in overlay means the default
+`docker compose up --build` still works on any machine.
+
+CPU inference on gemma2:2b is slower but functional either way. First pull of the
 model (either environment) takes a minute or two and is cached afterward (Docker
 named volume / k3s PVC).
 

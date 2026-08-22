@@ -1,0 +1,16 @@
+# Optional GPU overlay for Ollama. Requires the NVIDIA Container Toolkit
+# installed on the Docker host first (see README.md's GPU section) — applying
+# this on a machine without an NVIDIA GPU/driver registered will make
+# `docker compose up` fail to start, not silently fall back to CPU.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
