@@ -164,10 +164,14 @@ more headroom and want better fallback quality, swap `ollama.model` in
 e.g. `phi4-mini` (~3.2GB, stronger reasoning).
 
 GPU passthrough is **not** configured by default (`ollama.gpu: false`) — Ollama
-runs on CPU unless you've set up the NVIDIA Container Toolkit (Docker Compose) or
-the NVIDIA device plugin (k3s) yourself; CPU inference on gemma2:2b is slower but
-functional. First pull of the model (either environment) takes a minute or two and
-is cached afterward (Docker named volume / k3s PVC).
+runs on CPU unless enabled. For k3s, this chart includes the `RuntimeClass` and
+NVIDIA device plugin needed — see `gitops/README.md`'s "Enabling GPU inference"
+section for the node-level driver/toolkit setup steps that can't be automated by
+Helm. For Docker Compose, set up the NVIDIA Container Toolkit and add a `deploy.
+resources.reservations.devices` GPU block to the `ollama` service yourself. CPU
+inference on gemma2:2b is slower but functional either way. First pull of the
+model (either environment) takes a minute or two and is cached afterward (Docker
+named volume / k3s PVC).
 
 ## Monitoring with LangSmith
 
