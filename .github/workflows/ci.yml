@@ -27,9 +27,12 @@ jobs:
       chat-ui: ${{ steps.filter.outputs.chat-ui }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need the previous commit too, so paths-filter can diff against it
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: ${{ github.ref }}
           filters: |
             rag-api:
               - 'apps/rag-api/**'
@@ -44,6 +47,9 @@ jobs:
   build-rag-api:
     needs: detect-changes
     if: needs.detect-changes.outputs.rag-api == 'true'
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/build-service.yml
     with:
       service: rag-api
@@ -53,6 +59,9 @@ jobs:
   build-ingestion-worker:
     needs: detect-changes
     if: needs.detect-changes.outputs.ingestion-worker == 'true'
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/build-service.yml
     with:
       service: ingestion-worker
@@ -62,6 +71,9 @@ jobs:
   build-chat-ui:
     needs: detect-changes
     if: needs.detect-changes.outputs.chat-ui == 'true'
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/build-service.yml
     with:
       service: chat-ui
