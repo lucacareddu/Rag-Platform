@@ -26,11 +26,15 @@ variables:
     - 'git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops'
     - cd gitops
     - 'VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"'
-    - 'sed -i "s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#" "$VALUES_FILE"'
-    # Only the tag nested under this service's own top-level key gets patched —
-    # sed's address range (/^key:/,/^[a-zA-Z]/) scopes the replacement to lines
-    # between this key and the next top-level key, so sibling services' tags
-    # (same "tag:" text, different key blocks) are left untouched.
+    # Both registry: and tag: are nested under this service's own top-level key
+    # now (not a shared image: block) — sed's address range (/^key:/,/^[a-zA-Z]/)
+    # scopes each replacement to lines between this key and the next top-level
+    # key, so sibling services' registry/tag lines (same text, different blocks)
+    # are left untouched. This matters because two services can be built by two
+    # different CI systems pointing at two different registries (e.g. rag-api
+    # via GitLab, chat-ui via GitHub/ghcr.io) — clobbering a shared field would
+    # silently break whichever service didn't just get rebuilt.
+    - 'sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#}" "$VALUES_FILE"'
     - 'sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#tag:.*#tag: \"${IMAGE_TAG}\"#}" "$VALUES_FILE"'
     - 'git config user.email "ci@gitlab.local"'
     - 'git config user.name "gitlab-ci"'

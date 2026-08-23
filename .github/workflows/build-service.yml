@@ -54,10 +54,14 @@ jobs:
           git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
           cd gitops
           VALUES_FILE="charts/rag-platform/values-${BRANCH}.yaml"
-          sed -i "s#registry:.*#registry: \"${IMAGE_BASE}\"#" "$VALUES_FILE"
-          # Only this service's own tag key gets patched — see .gitlab-ci.yml
-          # for the same address-range technique, verified there against a
-          # real multi-service values.yaml.
+          # Both registry: and tag: are nested under this service's own
+          # top-level key now (not a shared image: block) — the address range
+          # scopes each replacement to only that block, verified against a real
+          # multi-service values.yaml (see .gitlab-ci.yml). This matters because
+          # rag-api might be built by GitLab and chat-ui by GitHub in the same
+          # branch, pointing at two different registries — clobbering a shared
+          # field would silently break whichever service didn't just rebuild.
+          sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#registry:.*#registry: \"${IMAGE_BASE}\"#}" "$VALUES_FILE"
           sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#tag:.*#tag: \"${IMAGE_TAG}\"#}" "$VALUES_FILE"
           git config user.email "ci@github-actions.local"
           git config user.name "github-actions"
