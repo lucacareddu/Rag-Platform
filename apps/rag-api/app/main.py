@@ -32,7 +32,7 @@ def ingest():
 
 @app.post("/ingest/upload")
 def ingest_upload(file: UploadFile = File(...)):
-    """Ingest a file Uploaded directly by the caller (e.g. from your laptop)."""
+    """Ingest a file uploaded directly by the caller (e.g. from your laptop)."""
     files = {"file": (file.filename, file.file, file.content_type)}
     r = httpx.post(f"{settings.ingestion_url}/upload", files=files, timeout=120)
     r.raise_for_status()
