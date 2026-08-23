@@ -17,7 +17,7 @@ server-side — the browser never talks to `rag-api` directly).
   `/api/ingest/upload` to `rag-api` server-side.
 - `gitops/` — copy this into your **separate** GitOps repo (chart + Argo CD Applications).
 - `nginx/`, `docker-compose.yml` — local exposure/testing without k3s.
-- `.gitlab-ci.yml` — builds/pushes images, then bumps image tag in the GitOps repo.
+- `.gitlab-ci.yml` — builds/pushes only the service(s) that changed, then bumps that service's tag in the GitOps repo.
 
 ## One-time setup
 
@@ -86,9 +86,11 @@ server-side — the browser never talks to `rag-api` directly).
 
 ## Flow
 Push to `test` or `main` branch of the **app** repo -> CI (GitLab CI and/or GitHub
-Actions, whichever remote you push to) builds/pushes both images -> the pipeline
-clones the GitOps repo, bumps `values-<branch>.yaml` image registry/tag, commits
--> Argo CD (auto-sync) rolls out the new image to the matching namespace on k3s.
+Actions, whichever remote you push to) detects which service(s) actually changed
+(`apps/rag-api`, `apps/ingestion-worker`, `apps/chat-ui` are built independently —
+a change to one doesn't rebuild the others) -> builds/pushes only those images ->
+bumps only their tag(s) in the GitOps repo's `values-<branch>.yaml`, commits ->
+Argo CD (auto-sync) rolls out the new image(s) to the matching namespace on k3s.
 
 ## Query & ingest documents
 Add `rag.local` (or `rag-test.local`) to `/etc/hosts` pointing at your k3s node IP,

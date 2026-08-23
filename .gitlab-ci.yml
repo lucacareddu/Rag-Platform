@@ -5,13 +5,16 @@
 #   GITOPS_REPO_PATH     e.g. yourgroup/rag-platform-gitops
 stages:
   - build
-  - deploy
 
 variables:
   IMAGE_TAG: $CI_COMMIT_SHORT_SHA
   DOCKER_TLS_CERTDIR: "/certs"
 
-.build_template: &build
+# Each service builds, pushes, and bumps only its own tag key in the GitOps repo.
+# rules:changes uses a literal path per job (not a $SERVICE-interpolated one) —
+# GitLab's variable expansion inside rules:changes is unreliable across versions,
+# so this avoids that risk entirely rather than relying on it.
+.build_and_deploy_template: &build_and_deploy
   stage: build
   image: docker:24
   services: ["docker:24-dind"]
@@ -19,39 +22,47 @@ variables:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker build -t "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG" "apps/$SERVICE"
     - docker push "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
-
-build-rag-api:
-  <<: *build
-  variables:
-    SERVICE: rag-api
-
-build-ingestion-worker:
-  <<: *build
-  variables:
-    SERVICE: ingestion-worker
-
-build-chat-ui:
-  <<: *build
-  variables:
-    SERVICE: chat-ui
-
-deploy-gitops:
-  stage: deploy
-  image: alpine:3.20
-  needs: ["build-rag-api", "build-ingestion-worker", "build-chat-ui"]
-  before_script:
     - apk add --no-cache git
-  script:
     - 'git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops'
     - cd gitops
     - 'VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"'
-    - 'sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"'
     - 'sed -i "s#registry:.*#registry: \"${CI_REGISTRY_IMAGE}\"#" "$VALUES_FILE"'
+    # Only the tag nested under this service's own top-level key gets patched —
+    # sed's address range (/^key:/,/^[a-zA-Z]/) scopes the replacement to lines
+    # between this key and the next top-level key, so sibling services' tags
+    # (same "tag:" text, different key blocks) are left untouched.
+    - 'sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#tag:.*#tag: \"${IMAGE_TAG}\"#}" "$VALUES_FILE"'
     - 'git config user.email "ci@gitlab.local"'
     - 'git config user.name "gitlab-ci"'
-    - 'git commit -am "chore: bump ${CI_COMMIT_BRANCH} image tag to ${IMAGE_TAG}" || echo "nothing to commit"'
+    - 'git commit -am "chore: bump ${CI_COMMIT_BRANCH} ${SERVICE} image to ${IMAGE_TAG}" || echo "nothing to commit"'
     - git push origin HEAD:main
+
+build-rag-api:
+  <<: *build_and_deploy
+  variables:
+    SERVICE: rag-api
+    VALUES_KEY: ragApi
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+      changes:
+        - apps/rag-api/**/*
+
+build-ingestion-worker:
+  <<: *build_and_deploy
+  variables:
+    SERVICE: ingestion-worker
+    VALUES_KEY: ingestionWorker
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+      changes:
+        - apps/ingestion-worker/**/*
+
+build-chat-ui:
+  <<: *build_and_deploy
+  variables:
+    SERVICE: chat-ui
+    VALUES_KEY: chatUi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+      changes:
+        - apps/chat-ui/**/*

@@ -19,54 +19,51 @@ env:
   IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/rag-platform
 
 jobs:
-  build:
+  detect-changes:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [rag-api, ingestion-worker, chat-ui]
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      rag-api: ${{ steps.filter.outputs.rag-api }}
+      ingestion-worker: ${{ steps.filter.outputs.ingestion-worker }}
+      chat-ui: ${{ steps.filter.outputs.chat-ui }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Compute short SHA
-        id: vars
-        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            rag-api:
+              - 'apps/rag-api/**'
+            ingestion-worker:
+              - 'apps/ingestion-worker/**'
+            chat-ui:
+              - 'apps/chat-ui/**'
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: apps/${{ matrix.service }}
-          push: true
-          tags: ${{ env.IMAGE_BASE }}/${{ matrix.service }}:${{ steps.vars.outputs.short_sha }}
+  # Three separate jobs (not a matrix) because job-level `if:` can't reference
+  # the matrix context to look up a dynamic key in detect-changes' outputs —
+  # each job instead checks its own literal, named output.
+  build-rag-api:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.rag-api == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      service: rag-api
+      values_key: ragApi
+    secrets: inherit
 
-  deploy-gitops:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone GitOps repo and bump image tag
-        env:
-          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
-          GITOPS_REPO_HOST: ${{ secrets.GITOPS_REPO_HOST }}
-          GITOPS_REPO_PATH: ${{ secrets.GITOPS_REPO_PATH }}
-          BRANCH: ${{ github.ref_name }}
-          FULL_SHA: ${{ github.sha }}
-        run: |
-          IMAGE_TAG="${FULL_SHA:0:8}"
-          git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
-          cd gitops
-          VALUES_FILE="charts/rag-platform/values-${BRANCH}.yaml"
-          sed -i "s#tag:.*#tag: \"${IMAGE_TAG}\"#" "$VALUES_FILE"
-          sed -i "s#registry:.*#registry: \"${IMAGE_BASE}\"#" "$VALUES_FILE"
-          git config user.email "ci@github-actions.local"
-          git config user.name "github-actions"
-          git commit -am "chore: bump ${BRANCH} image tag to ${IMAGE_TAG} (via GitHub Actions)" || echo "nothing to commit"
-          git push origin HEAD:main
+  build-ingestion-worker:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ingestion-worker == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      service: ingestion-worker
+      values_key: ingestionWorker
+    secrets: inherit
+
+  build-chat-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.chat-ui == 'true'
+    uses: ./.github/workflows/build-service.yml
+    with:
+      service: chat-ui
+      values_key: chatUi
+    secrets: inherit
