@@ -28,6 +28,20 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history needed for the tag-is-on-main check below
+
+      # A release tag is assumed to point at a commit that has landed on main
+      # — everything downstream (targeting values-main.yaml) relies on that.
+      # Fail fast, before building or pushing anything, if that's not true.
+      - name: Verify tag is on main
+        if: github.ref_type == 'tag'
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${{ github.sha }}" origin/main; then
+            echo "Tag ${{ github.ref_name }} points to ${{ github.sha }}, which is not on main — refusing to release."
+            exit 1
+          fi
 
       # A release tag names the image after the tag itself (not the commit
       # SHA) so the published artifact is traceable straight back to the
