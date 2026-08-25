@@ -9,6 +9,12 @@ on:
       values_key:
         required: true
         type: string
+      environment:
+        description: >-
+          Target values-<environment>.yaml in the GitOps repo. "main" for
+          release-tag builds, otherwise the source branch name (e.g. "test").
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -23,9 +29,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compute short SHA
+      # A release tag names the image after the tag itself (not the commit
+      # SHA) so the published artifact is traceable straight back to the
+      # release; other builds (test branch) keep the short SHA as before.
+      - name: Compute image tag
         id: vars
-        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "image_tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_tag=$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
@@ -39,21 +53,21 @@ jobs:
         with:
           context: apps/${{ inputs.service }}
           push: true
-          tags: ${{ env.IMAGE_BASE }}/${{ inputs.service }}:${{ steps.vars.outputs.short_sha }}
+          tags: ${{ env.IMAGE_BASE }}/${{ inputs.service }}:${{ steps.vars.outputs.image_tag }}
 
       - name: Bump this service's tag in the GitOps repo
         env:
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_REPO_HOST: ${{ secrets.GITOPS_REPO_HOST }}
           GITOPS_REPO_PATH: ${{ secrets.GITOPS_REPO_PATH }}
-          BRANCH: ${{ github.ref_name }}
-          IMAGE_TAG: ${{ steps.vars.outputs.short_sha }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
           VALUES_KEY: ${{ inputs.values_key }}
           SERVICE: ${{ inputs.service }}
         run: |
           git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops
           cd gitops
-          VALUES_FILE="charts/rag-platform/values-${BRANCH}.yaml"
+          VALUES_FILE="charts/rag-platform/values-${ENVIRONMENT}.yaml"
           # Both registry: and tag: are nested under this service's own
           # top-level key now (not a shared image: block) — the address range
           # scopes each replacement to only that block, verified against a real
@@ -65,5 +79,5 @@ jobs:
           sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#tag:.*#tag: \"${IMAGE_TAG}\"#}" "$VALUES_FILE"
           git config user.email "ci@github-actions.local"
           git config user.name "github-actions"
-          git commit -am "chore: bump ${BRANCH} ${SERVICE} image to ${IMAGE_TAG} (via GitHub Actions)" || echo "nothing to commit"
+          git commit -am "chore: bump ${ENVIRONMENT} ${SERVICE} image to ${IMAGE_TAG} (via GitHub Actions)" || echo "nothing to commit"
           git push origin HEAD:main

@@ -7,20 +7,30 @@
 #   GITOPS_REPO_HOST    e.g. gitlab.com
 #   GITOPS_REPO_PATH    e.g. yourgroup/rag-platform-gitops
 # GITHUB_TOKEN (pushing to ghcr.io) is auto-provided, no setup needed.
+#
+# Trigger model: `test` branch pushes still build per-changed-service, same as
+# always. `main` branch pushes no longer trigger anything — production only
+# ships when a semver tag (vX.Y.Z) is pushed manually, and a release tag
+# rebuilds+deploys all three services unconditionally (a tag has no
+# meaningful "previous commit" to diff against for change detection).
 
 name: CI
 
 on:
   push:
-    branches: [main, test]
+    branches: [test]
+    tags: ['v*.*.*']
 
 env:
   REGISTRY: ghcr.io
   IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/rag-platform
 
 jobs:
+  # Skipped for tag pushes — change detection only makes sense for branch
+  # pushes. Build jobs below fall back to "always run" when triggered by a tag.
   detect-changes:
     runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
     outputs:
       rag-api: ${{ steps.filter.outputs.rag-api }}
       ingestion-worker: ${{ steps.filter.outputs.ingestion-worker }}
@@ -43,10 +53,12 @@ jobs:
 
   # Three separate jobs (not a matrix) because job-level `if:` can't reference
   # the matrix context to look up a dynamic key in detect-changes' outputs —
-  # each job instead checks its own literal, named output.
+  # each job instead checks its own literal, named output. `!failure() &&
+  # !cancelled()` lets these run even though detect-changes is skipped on tag
+  # pushes (a skipped dependency otherwise skips its dependents by default).
   build-rag-api:
     needs: detect-changes
-    if: needs.detect-changes.outputs.rag-api == 'true'
+    if: "!failure() && !cancelled() && (github.ref_type == 'tag' || needs.detect-changes.outputs.rag-api == 'true')"
     permissions:
       contents: read
       packages: write
@@ -54,11 +66,12 @@ jobs:
     with:
       service: rag-api
       values_key: ragApi
+      environment: ${{ github.ref_type == 'tag' && 'main' || github.ref_name }}
     secrets: inherit
 
   build-ingestion-worker:
     needs: detect-changes
-    if: needs.detect-changes.outputs.ingestion-worker == 'true'
+    if: "!failure() && !cancelled() && (github.ref_type == 'tag' || needs.detect-changes.outputs.ingestion-worker == 'true')"
     permissions:
       contents: read
       packages: write
@@ -66,11 +79,12 @@ jobs:
     with:
       service: ingestion-worker
       values_key: ingestionWorker
+      environment: ${{ github.ref_type == 'tag' && 'main' || github.ref_name }}
     secrets: inherit
 
   build-chat-ui:
     needs: detect-changes
-    if: needs.detect-changes.outputs.chat-ui == 'true'
+    if: "!failure() && !cancelled() && (github.ref_type == 'tag' || needs.detect-changes.outputs.chat-ui == 'true')"
     permissions:
       contents: read
       packages: write
@@ -78,4 +92,5 @@ jobs:
     with:
       service: chat-ui
       values_key: chatUi
+      environment: ${{ github.ref_type == 'tag' && 'main' || github.ref_name }}
     secrets: inherit

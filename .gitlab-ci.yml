@@ -3,11 +3,16 @@
 #   GITOPS_TOKEN        -> PAT with write access to the gitops repo
 #   GITOPS_REPO_HOST     e.g. gitlab.com
 #   GITOPS_REPO_PATH     e.g. yourgroup/rag-platform-gitops
+#
+# Trigger model: `test` branch pushes still build per-changed-service, same as
+# always. `main` branch pushes no longer trigger anything — production only
+# ships when a semver tag (vX.Y.Z) is pushed manually, and a release tag
+# rebuilds+deploys all three services unconditionally (a tag has no
+# meaningful "previous commit" to diff against for change detection).
 stages:
   - build
 
 variables:
-  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
   DOCKER_TLS_CERTDIR: "/certs"
 
 # Each service builds, pushes, and bumps only its own tag key in the GitOps repo.
@@ -19,13 +24,18 @@ variables:
   image: docker:24
   services: ["docker:24-dind"]
   script:
+    # Tag pipelines have no $CI_COMMIT_BRANCH (it's only set for branch
+    # pushes) — a release tag always targets the main/production values file,
+    # and the image is named after the tag itself (not the commit SHA) so the
+    # published artifact is traceable straight back to the release.
+    - 'if [ -n "$CI_COMMIT_TAG" ]; then ENVIRONMENT="main"; IMAGE_TAG="$CI_COMMIT_TAG"; else ENVIRONMENT="$CI_COMMIT_BRANCH"; IMAGE_TAG="$CI_COMMIT_SHORT_SHA"; fi'
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
     - docker build -t "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG" "apps/$SERVICE"
     - docker push "$CI_REGISTRY_IMAGE/$SERVICE:$IMAGE_TAG"
     - apk add --no-cache git
     - 'git clone "https://oauth2:${GITOPS_TOKEN}@${GITOPS_REPO_HOST}/${GITOPS_REPO_PATH}.git" gitops'
     - cd gitops
-    - 'VALUES_FILE="charts/rag-platform/values-${CI_COMMIT_BRANCH}.yaml"'
+    - 'VALUES_FILE="charts/rag-platform/values-${ENVIRONMENT}.yaml"'
     # Both registry: and tag: are nested under this service's own top-level key
     # now (not a shared image: block) — sed's address range (/^key:/,/^[a-zA-Z]/)
     # scopes each replacement to lines between this key and the next top-level
@@ -38,7 +48,7 @@ variables:
     - 'sed -i "/^${VALUES_KEY}:/,/^[a-zA-Z]/{s#tag:.*#tag: \"${IMAGE_TAG}\"#}" "$VALUES_FILE"'
     - 'git config user.email "ci@gitlab.local"'
     - 'git config user.name "gitlab-ci"'
-    - 'git commit -am "chore: bump ${CI_COMMIT_BRANCH} ${SERVICE} image to ${IMAGE_TAG}" || echo "nothing to commit"'
+    - 'git commit -am "chore: bump ${ENVIRONMENT} ${SERVICE} image to ${IMAGE_TAG}" || echo "nothing to commit"'
     - git push origin HEAD:main
 
 build-rag-api:
@@ -47,7 +57,8 @@ build-rag-api:
     SERVICE: rag-api
     VALUES_KEY: ragApi
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_COMMIT_BRANCH == "test"'
       changes:
         - apps/rag-api/**/*
 
@@ -57,7 +68,8 @@ build-ingestion-worker:
     SERVICE: ingestion-worker
     VALUES_KEY: ingestionWorker
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_COMMIT_BRANCH == "test"'
       changes:
         - apps/ingestion-worker/**/*
 
@@ -67,6 +79,7 @@ build-chat-ui:
     SERVICE: chat-ui
     VALUES_KEY: chatUi
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "test"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_COMMIT_BRANCH == "test"'
       changes:
         - apps/chat-ui/**/*
