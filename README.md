@@ -1,7 +1,7 @@
-# Local, Free RAG Platform
+# Local RAG Platform
 
 GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
-Agentic RAG via LangGraph. LLM via the Gemini API (free tier, OpenAI-compatible),
+Agentic RAG via LangGraph. LLM via the Gemini API (OpenAI-compatible),
 with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5xx,
 timeout). Embeddings always via Gemini. LLM calls traced with LangSmith (optional).
 5 pods: `rag-api`, `ingestion-worker`, `qdrant`, `ollama`, `chat-ui` (Django,
@@ -37,8 +37,8 @@ server-side — the browser never talks to `rag-api` directly).
    ```
 
 1. Local dev (no k3s needed for this step): `cp .env.example .env` and fill in
-   `GEMINI_API_KEY` (free key from https://aistudio.google.com/app/apikey).
-   `LANGSMITH_API_KEY` is optional (free account at https://smith.langchain.com) —
+   `GEMINI_API_KEY` (key from https://aistudio.google.com/app/apikey).
+   `LANGSMITH_API_KEY` is optional (account at https://smith.langchain.com) —
    leave blank to skip tracing entirely. No key needed for Ollama, it's local.
    `docker compose up --build` then open `http://localhost:4200` for the chat UI,
    or hit the API directly at `http://localhost:8080/query` (via nginx) or
@@ -154,7 +154,7 @@ build (multi-stage: Node builds Angular, then it's copied into the Django image)
 `rag-api` calls Gemini for chat/generation first. If that call raises **any**
 error — rate limit (429), server error (5xx), timeout, network failure — it
 automatically retries the same request against a local Ollama model instead, so
-`/query` keeps working even if the Gemini free tier is throttling you. Embeddings
+`/query` keeps working even if Gemini's rate limit is throttling you. Embeddings
 always go through Gemini (switching embedding models would break similarity search
 against existing Qdrant vectors, so there's no embeddings fallback).
 
@@ -196,4 +196,4 @@ see `chat-gemini` spans normally, and `chat-ollama-fallback` spans whenever the
 fallback triggers, so you can monitor how often you're hitting Gemini's rate limit.
 
 Set `LANGSMITH_API_KEY` to enable it; leave blank to disable tracing with zero
-code changes. Free tier account: https://smith.langchain.com
+code changes. Sign up at https://smith.langchain.com
