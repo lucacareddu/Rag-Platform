@@ -11,6 +11,20 @@ class Settings(BaseSettings):
     embed_model: str = "gemini-embedding-2-preview"
     ingestion_url: str = "http://ingestion-worker:8001"
 
+    # graph_enabled=false falls back to plain vector retrieval.
+    neo4j_uri: str = "bolt://neo4j:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
+    graph_enabled: bool = True
+    graph_linked_entities: int = 5   # entities matched straight from the question text
+    graph_max_relations: int = 30
+    graph_max_chunks: int = 6        # above vector top_k (5), so overlap with vector hits doesn't starve new recall
+
+    # RRF: rank-based fusion of Qdrant + Neo4j chunk lists (their scores aren't comparable).
+    rrf_k: int = 60          # standard RRF damping constant
+    fusion_top_k: int = 8    # cap on the fused context, not a target
+
     # Local LLM fallback (used only for chat/generation when Gemini errors —
     # embeddings always stay on Gemini so Qdrant vector dimensions stay consistent)
     ollama_base_url: str = "http://ollama:11434/v1"

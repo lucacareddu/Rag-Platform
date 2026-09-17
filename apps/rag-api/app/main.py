@@ -1,7 +1,8 @@
 from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 import httpx
-from .graph import rag_graph
+from .workflow import rag_workflow
+from .neo4j_client import stats as graph_stats
 from .config import settings
 
 app = FastAPI(title="RAG API")
@@ -16,9 +17,23 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/graph/stats")
+def graph_stats_endpoint():
+    """Node/relationship counts in Neo4j, to confirm ingestion is populating the graph."""
+    if not settings.graph_enabled:
+        return {"enabled": False}
+    try:
+        return {"enabled": True, **graph_stats()}
+    except Exception as e:
+        return {"enabled": True, "reachable": False, "error": str(e)}
+
+
 @app.post("/query")
 def query(q: Query):
-    result = rag_graph.invoke({"question": q.question, "context": "", "answer": ""})
+    result = rag_workflow.invoke(
+        {"question": q.question, "chunk_ids": [], "vector_chunks": [],
+         "graph_chunks": [], "graph_context": "", "context": "", "answer": ""}
+    )
     return {"answer": result["answer"]}
 
 
