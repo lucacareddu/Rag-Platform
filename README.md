@@ -15,6 +15,9 @@ server-side — the browser never talks to `rag-api` directly).
 - `apps/chat-ui` — Django app that serves the Angular chat UI (built at Docker
   build time, in `apps/chat-ui/angular-app/`) and proxies `/api/query` and
   `/api/ingest/upload` to `rag-api` server-side.
+- `apps/mcp-server` — thin MCP proxy in front of `rag-api`'s `/query` and
+  `/ingest/upload`, so MCP clients (Claude Code, Claude Desktop, other agents)
+  can use this RAG platform as a tool. Not deployed to k3s — see "MCP server" below.
 - `gitops/` — copy this into your **separate** GitOps repo (chart + Argo CD Applications).
 - `nginx/`, `docker-compose.yml` — local exposure/testing without k3s.
 - `.gitlab-ci.yml` — builds/pushes only the service(s) that changed, then bumps that service's tag in the GitOps repo.
@@ -148,6 +151,44 @@ is still available too, for direct `curl`-based testing as shown above.
 `apps/chat-ui/angular-app/` and is built as part of `apps/chat-ui`'s own Docker
 build (multi-stage: Node builds Angular, then it's copied into the Django image)
 — there's no separate image or deploy step for the frontend.
+
+## MCP server
+
+`apps/mcp-server` exposes three tools that proxy straight to `rag-api` — it
+carries no RAG logic of its own, same requests/responses as curling
+`rag-api` directly, just reachable from any MCP client instead of only
+`curl`/the chat UI:
+- `query(question)` -> `rag-api`'s `/query`
+- `ingest_document(file_path)` -> `rag-api`'s `/ingest/upload`, for a single
+  file already on disk
+- `ingest_all()` -> `rag-api`'s `/ingest`, batch-ingesting whatever's already
+  sitting in the ingestion-worker's mounted documents directory
+
+It talks stdio today — the MCP host (Claude Code, Claude Desktop, ...) spawns
+it as a local subprocess and pipes JSON-RPC over its stdin/stdout, no port or
+network involved. It gets its own venv so it doesn't depend on whatever
+happens to be on your global `python3`:
+```
+python3 -m venv apps/mcp-server/.venv
+apps/mcp-server/.venv/bin/pip install -r apps/mcp-server/requirements.txt
+```
+The repo's `.mcp.json` already points Claude Code at that venv's interpreter
+(`apps/mcp-server/.venv/bin/python`) — `RAG_API_URL` defaults to
+`http://rag.local` (the k3s Ingress host); override it to
+`http://localhost:8000` for a `docker compose` setup, or to
+`http://rag-test.local` to point at the test namespace instead. For Claude
+Desktop, add the same `command`/`args`/`env` under `mcpServers` in its own
+config file (adjust the interpreter path if the venv lives somewhere else on
+that machine).
+
+`ingest_document` takes a `file_path` — it must be readable from wherever
+the MCP server process itself runs (your machine, for a local stdio
+server), not necessarily from wherever the MCP client is. Passing raw
+content instead (e.g. base64) was tried and reverted: pushing file bytes
+through a tool-call argument means an LLM client has to read, chunk, and
+re-emit the entire payload as text to make the call, which is slow, easy
+to get wrong on anything but small files, and unnecessary as long as
+client and server share a filesystem.
 
 ## Gemini fallback to local Ollama
 

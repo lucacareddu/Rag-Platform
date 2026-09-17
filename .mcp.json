@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "rag-platform": {
+      "command": "apps/mcp-server/.venv/bin/python",
+      "args": ["apps/mcp-server/server.py"],
+      "env": {
+        "RAG_API_URL": "http://rag-test.local"
+      }
+    }
+  }
+}
