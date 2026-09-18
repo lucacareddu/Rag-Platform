@@ -5,6 +5,8 @@ __pycache__/
 *.egg-info/
 documents/*
 !documents/.gitkeep
+eval/*
+!eval/*.py
 apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
