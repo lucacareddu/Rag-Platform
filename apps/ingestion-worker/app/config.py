@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     embed_model: str = "gemini-embedding-2-preview"
     chunk_size: int = 800
-    embed_batch_size: int = 32   # chunks per embeddings request — the API caps inputs per call
+    embed_batch_size: int = 32
+    embed_max_retries: int = 5
 
     # graph_enabled=false skips extraction, ingest stays vectors-only.
     neo4j_uri: str = "bolt://neo4j:7687"
