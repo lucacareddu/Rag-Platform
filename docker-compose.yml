@@ -18,8 +18,10 @@ services:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
     volumes: ["ollama-data:/root/.ollama"]
-    # Pulls the model on first start if not already cached in the volume.
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull gemma2:2b && wait"]
+    environment:
+      OLLAMA_KEEP_ALIVE: -1   # never unload the model from VRAM
+    # Pulls the model, then loads it into VRAM right away.
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull gemma2:2b && ollama run gemma2:2b hi < /dev/null > /dev/null && wait"]
 
   rag-api:
     build: ./apps/rag-api
