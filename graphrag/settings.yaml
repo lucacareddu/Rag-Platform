@@ -1,0 +1,182 @@
+### Official Microsoft GraphRAG, Azure OpenAI backend.
+###
+### Two settings here are not optional and will silently produce an empty index
+### if changed:
+###
+### reasoning_effort: minimal — gpt-5-nano is a reasoning model. At its default
+###   effort it spends the entire completion budget on hidden reasoning tokens
+###   and returns an empty string, with finish_reason "length". Every extraction
+###   call would parse as zero entities and the index would build cleanly with
+###   nothing in it.
+### temperature: 1 — gpt-5 models reject any other value. litellm's drop_params
+###   does not rewrite it, it only drops params the model does not accept at all.
+
+models:
+  default_chat_model:
+    type: chat
+    model_provider: azure
+    auth_type: api_key
+    api_key: ${GRAPHRAG_API_KEY}
+    api_base: ${GRAPHRAG_API_BASE}
+    api_version: ${GRAPHRAG_API_VERSION}
+    deployment_name: ${GRAPHRAG_DEPLOYMENT}
+    model: gpt-5-nano
+    model_supports_json: true
+    temperature: 1
+    max_tokens: null
+    max_completion_tokens: 8000
+    reasoning_effort: minimal
+    # The binding constraint is per-call latency, not the quota. Measured on
+    # the full corpus: ~3 minutes per extraction call, so even 40 in flight
+    # sustained only ~14 requests/min against a 250/min deployment. At 80 the
+    # projected draw is ~29 requests/min and ~90k tokens/min, still well inside
+    # both ceilings, and roughly halves the indexing wall-clock.
+    concurrent_requests: 80
+    async_mode: threaded
+    retry_strategy: exponential_backoff
+    max_retries: 10
+    # Deployment limits measured from the Azure rate-limit headers:
+    # 250 requests/min and 250k tokens/min. Left with headroom so retries
+    # are not themselves rate limited.
+    requests_per_minute: 200
+    tokens_per_minute: 200000
+  default_embedding_model:
+    type: embedding
+    model_provider: azure
+    auth_type: api_key
+    api_key: ${GRAPHRAG_EMBED_API_KEY}
+    api_base: ${GRAPHRAG_EMBED_API_BASE}
+    # Quoted: the embedding api-version is a bare date, which YAML would
+    # otherwise load as a datetime.date and fail string validation.
+    api_version: "${GRAPHRAG_EMBED_API_VERSION}"
+    deployment_name: ${GRAPHRAG_EMBED_DEPLOYMENT}
+    model: text-embedding-3-small
+    concurrent_requests: 8
+    async_mode: threaded
+    retry_strategy: exponential_backoff
+    max_retries: 10
+    # Embedding deployment is a separate 150k TPM bucket.
+    tokens_per_minute: 120000
+
+### Input settings ###
+
+input:
+  storage:
+    type: file
+    base_dir: "input"
+  file_type: text
+
+chunks:
+  size: 1200
+  overlap: 100
+  group_by_columns: [id]
+
+### Output/storage settings ###
+
+output:
+  type: file
+  base_dir: "output"
+
+cache:
+  type: file
+  base_dir: "cache"
+
+reporting:
+  type: file
+  base_dir: "logs"
+
+vector_store:
+  default_vector_store:
+    type: lancedb
+    db_uri: output/lancedb
+    container_name: default
+
+### Workflow settings ###
+
+embed_text:
+  model_id: default_embedding_model
+  vector_store_id: default_vector_store
+
+extract_graph:
+  model_id: default_chat_model
+  prompt: "prompts/extract_graph.txt"
+  # The shipped default is [organization, person, geo, event], tuned for news
+  # articles. On NIST special publications that yields authors, NIST itself and
+  # a scattering of agencies — publication metadata, not subject matter. These
+  # types are what the documents are actually about.
+  entity_types:
+    [
+      organization,
+      person,
+      framework,
+      control,
+      process,
+      technology,
+      threat,
+      vulnerability,
+      role,
+      artifact,
+      publication,
+    ]
+  max_gleanings: 1
+
+summarize_descriptions:
+  model_id: default_chat_model
+  prompt: "prompts/summarize_descriptions.txt"
+  max_length: 500
+
+extract_graph_nlp:
+  text_analyzer:
+    extractor_type: regex_english
+  async_mode: threaded
+
+cluster_graph:
+  max_cluster_size: 10
+
+extract_claims:
+  enabled: false
+  model_id: default_chat_model
+  prompt: "prompts/extract_claims.txt"
+  description: "Any claims or facts that could be relevant to information discovery."
+  max_gleanings: 1
+
+community_reports:
+  model_id: default_chat_model
+  graph_prompt: "prompts/community_report_graph.txt"
+  text_prompt: "prompts/community_report_text.txt"
+  max_length: 2000
+  max_input_length: 8000
+
+embed_graph:
+  enabled: false
+
+umap:
+  enabled: false
+
+snapshots:
+  graphml: true
+  embeddings: false
+
+### Query settings ###
+
+local_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/local_search_system_prompt.txt"
+
+global_search:
+  chat_model_id: default_chat_model
+  map_prompt: "prompts/global_search_map_system_prompt.txt"
+  reduce_prompt: "prompts/global_search_reduce_system_prompt.txt"
+  knowledge_prompt: "prompts/global_search_knowledge_system_prompt.txt"
+
+drift_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/drift_search_system_prompt.txt"
+  reduce_prompt: "prompts/drift_search_reduce_prompt.txt"
+
+basic_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/basic_search_system_prompt.txt"
