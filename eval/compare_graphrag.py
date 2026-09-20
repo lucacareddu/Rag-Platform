@@ -134,6 +134,7 @@ def build_metrics(judge):
         name="correctness",
         model=judge,
         evaluation_params=[P.INPUT, P.ACTUAL_OUTPUT, P.EXPECTED_OUTPUT],
+        async_mode=False,
         evaluation_steps=[
             "Check whether the facts in the actual output contradict any fact in the expected output.",
             "Heavily penalise contradictions and invented specifics such as numbers, dates or names not supported by the expected output.",
@@ -146,6 +147,7 @@ def build_metrics(judge):
         name="comprehensiveness",
         model=judge,
         evaluation_params=[P.INPUT, P.ACTUAL_OUTPUT, P.EXPECTED_OUTPUT],
+        async_mode=False,
         evaluation_steps=[
             "Judge how much of the breadth described in the expected output the actual output covers.",
             "Reward answers that span many distinct aspects, sources or publications rather than treating one in depth.",
@@ -157,6 +159,7 @@ def build_metrics(judge):
         name="diversity",
         model=judge,
         evaluation_params=[P.INPUT, P.ACTUAL_OUTPUT],
+        async_mode=False,
         evaluation_steps=[
             "Judge how varied and rich the perspectives in the actual output are.",
             "Reward answers that surface different angles, contrasts or tensions rather than restating one point.",
