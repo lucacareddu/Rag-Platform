@@ -24,6 +24,7 @@ Run: .venv-graphrag/bin/python eval/compare_graphrag.py [--arms basic,local,glob
 import argparse
 import asyncio
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -170,6 +171,18 @@ def build_metrics(judge):
     }
 
 
+def _metric_key(m) -> str:
+    """GEval carries a `name`; the built-in metrics carry nothing and fall back
+    to their class name. Without this both built-ins would land under keys like
+    `answerrelevancymetric`, which the report does not look for — they would
+    print as blanks rather than as failures."""
+    name = getattr(m, "name", None)
+    if isinstance(name, str) and name:
+        return re.sub(r"\W+", "_", name).strip("_").lower()
+    cls = type(m).__name__.removesuffix("Metric")
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", cls).lower()
+
+
 def score(item, result, metrics, judge) -> dict:
     from deepeval.test_case import LLMTestCase
 
@@ -185,7 +198,7 @@ def score(item, result, metrics, judge) -> dict:
 
     out = {}
     for m in applicable:
-        name = getattr(m, "name", m.__class__.__name__).lower().replace(" ", "_")
+        name = _metric_key(m)
         try:
             m.measure(tc)
             out[name] = round(float(m.score), 4)
