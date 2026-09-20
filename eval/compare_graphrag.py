@@ -110,6 +110,17 @@ async def run_arm(arm: str, question: str, cfg, art) -> dict:
             community_reports=art["community_reports"],
             community_level=COMMUNITY_LEVEL, dynamic_community_selection=False,
             response_type=RESPONSE_TYPE, query=question)
+    elif arm == "dynamic":
+        # Global search with the hierarchical tree walk: rate the 26 root
+        # communities for relevance, descend only into the children of those
+        # that clear the threshold, instead of map-reducing over all 540.
+        # Measured on one question against the static arm: 30 calls vs 43,
+        # 87k input tokens vs 521k, 30s vs 259s.
+        resp, ctx = await api.global_search(
+            config=cfg, entities=art["entities"], communities=art["communities"],
+            community_reports=art["community_reports"],
+            community_level=COMMUNITY_LEVEL, dynamic_community_selection=True,
+            response_type=RESPONSE_TYPE, query=question)
     else:
         raise ValueError(arm)
 
@@ -214,7 +225,7 @@ def score(item, result, metrics, judge) -> dict:
 # --------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--arms", default="basic,local,global")
+    ap.add_argument("--arms", default="basic,local,global,dynamic")
     ap.add_argument("--book", default=str(BOOK))
     ap.add_argument("--no-score", action="store_true",
                     help="generate answers only, skip judging")

@@ -47,7 +47,7 @@ RESULTS = Path(__file__).parent / "results_graphrag.json"
 OUT = Path(__file__).parent / "results_pairwise.json"
 BOOK = Path(__file__).parent / "test_book_v3.json"
 
-ARMS = ["basic", "local", "global"]
+ARMS = ["basic", "local", "global", "dynamic"]
 
 CRITERIA = {
     "comprehensiveness": "How much detail does the answer provide to cover all aspects and details of the question?",
@@ -128,8 +128,8 @@ def main():
     args = ap.parse_args()
 
     rows = json.loads(RESULTS.read_text())
-    rows = [r for r in rows if len(r["arms"]) == 3]
-    print(f"questions with all three arms: {len(rows)}", file=sys.stderr)
+    rows = [r for r in rows if all(a in r["arms"] for a in ARMS)]
+    print(f"questions with all {len(ARMS)} arms: {len(rows)}", file=sys.stderr)
 
     out = json.loads(OUT.read_text()) if OUT.exists() else []
     done = {(r["id"], tuple(r["pair"]), r["repeat"]) for r in out}
