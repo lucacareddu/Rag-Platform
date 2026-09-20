@@ -8,3 +8,22 @@ documents/*
 apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
+
+# Python venv for the GraphRAG experiment (large, rebuildable from requirements).
+.venv-graphrag/
+# Any .env.<suffix> may hold live credentials; the template is the exception.
+.env.*
+.deepeval/
+# Eval outputs: only the scripts, the test book and this experiment's own
+# results are tracked. Results from the pre-GraphRAG experiment live on the
+# `test` branch and do not belong here.
+eval/results.json
+eval/results_2hop_topk5.json
+eval/results_C_3docs.json
+eval/results_D_4docs.json
+eval/results_baseline_pre_fix.json
+eval/results_confounded_run.json
+eval/results_deepeval.json
+eval/results_pre_2hop.json
+eval/test_book.json
+eval/test_book_v2.json
