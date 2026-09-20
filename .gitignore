@@ -10,3 +10,5 @@ eval/*
 apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
+.env.*
+.deepeval/

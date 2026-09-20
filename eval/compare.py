@@ -20,7 +20,7 @@ from app.config import settings
 from app.llm_clients import _chat_ollama
 from app.neo4j_client import expand as graph_expand
 from app.qdrant_client import search
-from app.workflow import _reciprocal_rank_fusion, embed
+from app.workflow import _rank, embed
 
 chat = _chat_ollama
 
@@ -71,7 +71,7 @@ def run_vector_plus_graph(question: str) -> dict:
     found = _retry(graph_expand, chunk_ids, question)
     graph_chunks = found["chunks"]
 
-    fused = _reciprocal_rank_fusion([vector_chunks, graph_chunks], k=settings.rrf_k)
+    fused = _rank(vector_chunks, graph_chunks, found.get("chunk_meta", {}))
     context = "\n\n".join(fused[:settings.fusion_top_k])
 
     sections = []
@@ -98,6 +98,28 @@ def run_vector_plus_graph(question: str) -> dict:
     }
 
 
+def _resolve_contexts(item: dict) -> list[str]:
+    """v2 books store reference CHUNK IDS; v1 stored pasted text.
+
+    Ids are resolved against the live collection so re-chunking can never
+    silently invalidate the gold set — the failure mode that made v1 score a
+    correct retrieval as 0.000 once SP 800-184 was re-ingested.
+    """
+    if "reference_contexts" in item:
+        return item["reference_contexts"]
+    ids = item.get("reference_chunk_ids") or []
+    if not ids:
+        return []
+    from app.qdrant_client import client as _qc
+    recs = _qc.retrieve(collection_name=settings.qdrant_collection, ids=ids, with_payload=True)
+    found = {str(r.id): r.payload.get("text", "") for r in recs}
+    missing = [i for i in ids if i not in found]
+    if missing:
+        raise SystemExit(f"test book references {len(missing)} chunk id(s) absent from the "
+                         f"collection — rebuild it with build_test_book.py")
+    return [found[i] for i in ids]
+
+
 def score(question: str, reference_answer: str, reference_contexts: list[str], result: dict) -> dict:
     sample = SingleTurnSample(
         user_input=question,
@@ -106,7 +128,15 @@ def score(question: str, reference_answer: str, reference_contexts: list[str], r
         retrieved_contexts=result["retrieval_context"],
         reference_contexts=reference_contexts,
     )
-    return {name: metric.single_turn_score(sample) for name, metric in METRICS.items()}
+    out = {}
+    for name, metric in METRICS.items():
+        # A negative control has no correct context by construction; scoring
+        # context metrics against an empty gold set would report a fake 0.
+        if not reference_contexts and name.startswith("context_"):
+            out[name] = None
+        else:
+            out[name] = metric.single_turn_score(sample)
+    return out
 
 
 RESULTS_PATH = Path(__file__).parent / "results.json"
@@ -128,8 +158,9 @@ def main():
         v = run_vector_only(item["question"])
         vg = run_vector_plus_graph(item["question"])
 
-        v_scores = score(item["question"], item["reference_answer"], item["reference_contexts"], v)
-        vg_scores = score(item["question"], item["reference_answer"], item["reference_contexts"], vg)
+        refs = _resolve_contexts(item)
+        v_scores = score(item["question"], item["reference_answer"], refs, v)
+        vg_scores = score(item["question"], item["reference_answer"], refs, vg)
 
         rows.append({
             "id": item["id"], "category": item["category"], "question": item["question"],
@@ -149,11 +180,15 @@ def print_report(rows: list[dict]):
     print(f"{'metric':<20}{'vector mean':>14}{'graph mean':>14}{'delta':>10}{'wins(v/g/tie)':>16}")
     print("=" * 100)
     for m in metric_names:
-        v_vals = [r["vector"]["scores"][m] for r in rows]
-        g_vals = [r["graph"]["scores"][m] for r in rows]
+        pairs = [(r["vector"]["scores"][m], r["graph"]["scores"][m]) for r in rows
+                 if r["vector"]["scores"][m] is not None and r["graph"]["scores"][m] is not None]
+        v_vals = [p[0] for p in pairs]
+        g_vals = [p[1] for p in pairs]
+        if not v_vals:
+            continue
         wins_v = sum(1 for v, g in zip(v_vals, g_vals) if v > g)
         wins_g = sum(1 for v, g in zip(v_vals, g_vals) if g > v)
-        ties = len(rows) - wins_v - wins_g
+        ties = len(pairs) - wins_v - wins_g
         v_mean, g_mean = statistics.mean(v_vals), statistics.mean(g_vals)
         print(f"{m:<20}{v_mean:>14.3f}{g_mean:>14.3f}{g_mean-v_mean:>+10.3f}{f'{wins_v}/{wins_g}/{ties}':>16}")
 
@@ -172,6 +207,9 @@ def print_report(rows: list[dict]):
     print("\nper-question breakdown (context_recall, the metric most sensitive to retrieval gaps):")
     for r in rows:
         v, g = r["vector"]["scores"]["context_recall"], r["graph"]["scores"]["context_recall"]
+        if v is None or g is None:
+            print(f"  [{r['id']:>2}] {r['category']:<26} (no gold context — negative control)")
+            continue
         flag = "  <-- graph helped" if g > v + 0.05 else ("  <-- graph hurt" if g < v - 0.05 else "")
         print(f"  [{r['id']:>2}] {r['category']:<26} vector={v:.2f}  graph={g:.2f}{flag}")
 

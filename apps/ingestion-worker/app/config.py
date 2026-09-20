@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     embed_batch_size: int = 32
     embed_max_retries: int = 5
+    embed_requests_per_minute: int = 90   # free tier caps at 100 inputs/min; leave headroom
 
     # graph_enabled=false skips extraction, ingest stays vectors-only.
     neo4j_uri: str = "bolt://neo4j:7687"
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     neo4j_password: str = ""
     neo4j_database: str = "neo4j"
     graph_enabled: bool = True
+    max_mention_ratio: float = 0.15   # drop entities mentioned in more chunks than this (doc title/topic self-references)
     extract_model: str = "gemini-3.5-flash"
     extract_window_chars: int = 60000   # covers the whole document across windows, not just the start
     extract_window_overlap: int = 2000   # so a relation straddling a boundary is still seen whole

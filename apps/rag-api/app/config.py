@@ -19,11 +19,16 @@ class Settings(BaseSettings):
     graph_enabled: bool = True
     graph_linked_entities: int = 5   # entities matched straight from the question text
     graph_max_relations: int = 30
-    graph_max_chunks: int = 6        # above vector top_k (5), so overlap with vector hits doesn't starve new recall
+    graph_relations_per_entity: int = 6   # prevents one high-degree hub entity from filling the whole budget
+    graph_max_chunks: int = 12       # 2-hop widens the candidate pool; reranking cuts it back down
 
-    # RRF: rank-based fusion of Qdrant + Neo4j chunk lists (their scores aren't comparable).
-    rrf_k: int = 60          # standard RRF damping constant
+    vector_top_k: int = 8    # matched to fusion_top_k so both arms get the same context size
     fusion_top_k: int = 8    # cap on the fused context, not a target
+    # Budget split. Vector hits keep the majority of the window; the rest is
+    # reserved for graph-unique chunks so they can't be crowded out by
+    # higher-ranked vector chunks the way RRF used to discard them.
+    graph_min_vector_slots: int = 4
+    graph_reserved_slots: int = 1   # graph chunks measure worse than vector ones; keep the toehold small
 
     # Local LLM fallback (used only for chat/generation when Gemini errors —
     # embeddings always stay on Gemini so Qdrant vector dimensions stay consistent)

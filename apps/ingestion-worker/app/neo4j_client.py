@@ -1,7 +1,9 @@
 import logging
+import re
 
 from neo4j import GraphDatabase
 from .config import settings
+from .entity_norm import resolve
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +37,42 @@ def write_document(doc_id: str, source: str, chunks: list[dict],
     """Writes the whole document's graph in one transaction. `chunks` ids must
     match the Qdrant point ids — that's the join key rag-api relies on."""
     ensure_schema()
-    mentions = _map_mentions(chunks, entities)
+    entities, relations = resolve(entities, relations)
+    entities, mentions = _map_mentions(chunks, entities)
+    # resolve() may drop an entity that _map_mentions then also prunes as a hub;
+    # relations pointing at a pruned node would MATCH nothing, so drop them too.
+    live = {e["key"] for e in entities}
+    relations = [r for r in relations
+                 if r["source_key"] in live and r["target_key"] in live]
     with driver.session(database=settings.neo4j_database) as s:
         s.execute_write(_write_tx, doc_id, source, chunks, entities, relations, mentions)
 
 
-def _map_mentions(chunks: list[dict], entities: list[dict]) -> list[dict]:
-    """Links entities back to the chunks that mention them, by substring match."""
-    out = []
+def _map_mentions(chunks: list[dict], entities: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Links entities to the chunks that mention them (whole-phrase match, not
+    substring), recording how widely each is mentioned.
+
+    Frequent entities are NOT dropped. Deleting them here was suppressing
+    exactly the cross-document bridges the graph exists to provide: a
+    document's central topic is the one entity another document about the same
+    subject also names ("Cybersecurity Framework" covers 34% of CSWP chunks, so
+    a 15% cap erased the only real link to SP 800-184). Sparse entities like
+    author names survived that cap, which is why every cross-document entity
+    was publication metadata.
+
+    Hub dominance is a *ranking* problem, so it is solved at ranking time —
+    rag-api discounts by mention_count rather than having the edge removed.
+    """
     lowered = [(c["id"], c["text"].lower()) for c in chunks]
+    kept, out = [], []
     for e in entities:
-        needle = e["name"].lower()
-        for chunk_id, text in lowered:
-            if needle in text:
-                out.append({"chunk_id": chunk_id, "key": needle})
-    return out
+        pattern = r"(?<![A-Za-z0-9])" + re.escape(e["name"].lower()) + r"(?![A-Za-z0-9])"
+        hits = [chunk_id for chunk_id, text in lowered if re.search(pattern, text)]
+        if not hits:
+            continue
+        kept.append({**e, "mention_count": len(hits)})
+        out.extend({"chunk_id": chunk_id, "key": e["key"]} for chunk_id in hits)
+    return kept, out
 
 
 def _write_tx(tx, doc_id, source, chunks, entities, relations, mentions):
@@ -95,8 +118,9 @@ def _write_tx(tx, doc_id, source, chunks, entities, relations, mentions):
     if entities:
         tx.run(
             "UNWIND $entities AS entity "
-            "MERGE (e:Entity {key: toLower(entity.name)}) "
-            "SET e.name = entity.name, e.type = entity.type",
+            "MERGE (e:Entity {key: entity.key}) "
+            "SET e.name = entity.name, e.type = entity.type, "
+            "    e.mention_count = coalesce(e.mention_count, 0) + entity.mention_count",
             entities=entities,
         )
 
@@ -112,8 +136,8 @@ def _write_tx(tx, doc_id, source, chunks, entities, relations, mentions):
         # Verb kept as a property, not a dynamic relationship type (needs APOC).
         tx.run(
             "UNWIND $relations AS relation "
-            "MATCH (s:Entity {key: toLower(relation.source)}), "
-            "      (t:Entity {key: toLower(relation.target)}) "
+            "MATCH (s:Entity {key: relation.source_key}), "
+            "      (t:Entity {key: relation.target_key}) "
             "MERGE (s)-[r:RELATES {type: relation.type}]->(t) "
             "SET r.doc_ids = CASE "
             "  WHEN r.doc_ids IS NULL THEN [$doc_id] "

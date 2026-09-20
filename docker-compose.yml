@@ -19,7 +19,12 @@ services:
     ports: ["11434:11434"]
     volumes: ["ollama-data:/root/.ollama"]
     environment:
-      OLLAMA_KEEP_ALIVE: -1   # never unload the model from VRAM
+      # Not -1: llama-server's host-side allocation grows per request (observed
+      # 3.1GB -> 4.1GB serving a 1.9GB model reported as "100% GPU"), and
+      # "never unload" means it is never reclaimed. On a 7.6GB host that
+      # starves the system during sustained inference. A finite timeout lets
+      # the memory come back between bursts.
+      OLLAMA_KEEP_ALIVE: 5m
     # Pulls the model, then loads it into VRAM right away.
     entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 3 && ollama pull gemma2:2b && ollama run gemma2:2b hi < /dev/null > /dev/null && wait"]
 

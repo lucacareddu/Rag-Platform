@@ -14,8 +14,7 @@ MATCH (c)-[:MENTIONS]->(e:Entity)
 RETURN DISTINCT e.key AS key, e.name AS name, e.type AS type
 """
 
-# Query-side entity linking: the other direction into the graph, for when the
-# question names an entity but no chunk phrased it similarly enough to rank.
+# Query-side entity linking: for when the question names an entity no chunk phrased closely enough.
 _LINKED_ENTITIES = """
 CALL db.index.fulltext.queryNodes('entity_name', $q) YIELD node, score
 RETURN node.key AS key, node.name AS name, node.type AS type
@@ -25,19 +24,39 @@ LIMIT $limit
 
 _NEIGHBOURHOOD = """
 MATCH (e:Entity) WHERE e.key IN $keys
-MATCH (e)-[r:RELATES]-(:Entity)
+MATCH (e)-[r:RELATES]-(o:Entity)
+WITH e, r, o.key IN $keys AS mutual
+ORDER BY mutual DESC
+WITH e, collect(r)[0..$per_entity] AS top
+UNWIND top AS r
 RETURN DISTINCT startNode(r).name AS source, r.type AS type, endNode(r).name AS target
 LIMIT $limit
 """
 
-# Ranked by entity overlap; deliberately includes chunks vector search already
-# found so workflow.py's RRF fusion can sum their scores as a consensus signal.
+# Hop 1: chunks mentioning an anchor entity. Hop 2: chunks reached via a RELATES neighbour —
+# the point of having a graph, reaching chunks with no shared vocabulary with the question.
 _GRAPH_CHUNKS = """
 MATCH (e:Entity) WHERE e.key IN $keys
-MATCH (c:Chunk)-[:MENTIONS]->(e)
-WITH c, count(DISTINCT e) AS overlap
-RETURN c.text AS text, overlap
-ORDER BY overlap DESC, c.index ASC
+CALL {
+  WITH e
+  MATCH (c:Chunk)-[:MENTIONS]->(e)
+  RETURN c, 1 AS hop, e AS via
+  UNION
+  WITH e
+  MATCH (e)-[:RELATES]-(o:Entity) WHERE NOT o.key IN $keys
+  MATCH (c:Chunk)-[:MENTIONS]->(o)
+  RETURN c, 2 AS hop, o AS via
+}
+WITH c, hop, via, count{(:Chunk)-[:MENTIONS]->(via)} AS via_freq
+// Hub entities are kept as edges (they are the cross-document bridges) but
+// contribute less evidence per chunk: one shared mention of a topic named in
+// a third of the corpus means far less than one shared mention of a specific
+// entity. 1/(1+log10(freq)) discounts smoothly instead of cutting off.
+WITH c, hop, via, via_freq, 1.0 / (1.0 + log10(toFloat(via_freq))) AS weight
+WITH c, min(hop) AS hop, count(DISTINCT via) AS overlap,
+     sum(weight) AS evidence, min(via_freq) AS rarest
+RETURN c.text AS text, hop, overlap, rarest, evidence
+ORDER BY evidence DESC, hop ASC
 LIMIT $limit
 """
 
@@ -54,22 +73,26 @@ def expand(chunk_ids: list[str], question: str) -> dict:
                 keys.setdefault(r["key"], r)
 
         if not keys:
-            return {"entities": [], "relations": [], "chunks": []}
+            return {"entities": [], "relations": [], "chunks": [], "chunk_meta": {}}
 
         key_list = list(keys)
         relations = [
             f"{r['source']} —{r['type']}→ {r['target']}"
-            for r in s.run(_NEIGHBOURHOOD, keys=key_list, limit=settings.graph_max_relations)
+            for r in s.run(_NEIGHBOURHOOD, keys=key_list,
+                            limit=settings.graph_max_relations,
+                            per_entity=settings.graph_relations_per_entity)
         ]
-        chunks = [
-            r["text"]
-            for r in s.run(_GRAPH_CHUNKS, keys=key_list, limit=settings.graph_max_chunks)
-        ]
+        rows = [dict(r) for r in s.run(_GRAPH_CHUNKS, keys=key_list,
+                                       limit=settings.graph_max_chunks)]
 
     return {
         "entities": [f"{r['name']} ({r['type']})" for r in keys.values()],
         "relations": relations,
-        "chunks": chunks,
+        "chunks": [r["text"] for r in rows],
+        # Per-chunk provenance for reranking; same order as `chunks`.
+        "chunk_meta": {r["text"]: {"hop": r["hop"], "overlap": r["overlap"],
+                                   "rarest": r["rarest"], "evidence": r["evidence"]}
+                       for r in rows},
     }
 
 

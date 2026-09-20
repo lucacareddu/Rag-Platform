@@ -22,6 +22,10 @@ Rules:
 - "source" and "target" must both appear in "entities".
 - Only relations actually stated in the document. Do not infer or invent.
 - Skip generic filler entities ("the company", "the system", "this document").
+- Skip bare acronyms/abbreviations and glossary or taxonomy entries (e.g. "IT", "NIST",
+  "PR.AC", "ID.AM") unless the acronym is itself the specific thing being discussed.
+- Skip generic nouns even when capitalized as a section heading ("Risk", "Function",
+  "Category") — an entity must name a specific, identifiable person/org/product/place/event.
 
 Document:
 """
@@ -58,8 +62,7 @@ def _windows(text: str) -> list[str]:
     size = settings.extract_window_chars
     step = max(1, size - settings.extract_window_overlap)
     windows = [text[s:s + size] for s in range(0, len(text), step)]
-    # range() emits a final start inside the previous window's tail whenever the
-    # text doesn't divide evenly; that trailing window is already covered.
+    # Skip the final range() start if it lands inside the previous window's tail.
     windows = [w for w in windows if w.strip()]
     if len(windows) > settings.extract_max_windows:
         logger.warning(
