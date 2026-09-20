@@ -26,6 +26,8 @@ import json
 import re
 import statistics
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -104,65 +106,82 @@ def metric_key(m) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", type(m).__name__.removesuffix("Metric")).lower()
 
 
+def _score_one(task, samples: int) -> dict:
+    """One (question, arm) pair. Builds its own judge and metric objects:
+    DeepEval metrics carry per-measure state, so sharing them across threads
+    would interleave scores between cases."""
+    from deepeval.test_case import LLMTestCase
+
+    r, arm, d, item = task
+    judge = AzureGPT5Nano()
+    metrics = build_metrics(judge)
+
+    answer = strip_citations(d["answer"])
+    tc = LLMTestCase(
+        input=r["question"],
+        actual_output=answer,
+        expected_output=item["reference_answer"],
+        retrieval_context=[strip_citations(c) for c in d["retrieval_context"]]
+        or ["(no context returned)"],
+    )
+    applicable = list(metrics["all"])
+    if r["tier"] == "global":
+        applicable += metrics["global_only"]
+
+    scores = {}
+    for m in applicable:
+        key, vals = metric_key(m), []
+        for _ in range(samples):
+            try:
+                m.measure(tc)
+                vals.append(float(m.score))
+            except Exception as e:
+                print(f"   [{r['id']}|{arm}] {key} sample failed: {e}", file=sys.stderr)
+        if vals:
+            scores[key] = round(statistics.median(vals), 4)
+            scores[key + "_spread"] = round(max(vals) - min(vals), 4)
+            scores[key + "_samples"] = vals
+        else:
+            scores[key] = None
+
+    print(f"[{r['id']}|{r['tier']}] {arm}: "
+          + " ".join(f"{k}={v}" for k, v in scores.items()
+                     if not k.endswith(("_spread", "_samples"))), file=sys.stderr)
+    return {"id": r["id"], "tier": r["tier"], "category": r["category"],
+            "question": r["question"], "arm": arm,
+            "citations_stripped": len(d["answer"]) - len(answer),
+            "scores": scores}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--samples", type=int, default=5)
+    ap.add_argument("--workers", type=int, default=10)
     args = ap.parse_args()
-
-    from deepeval.test_case import LLMTestCase
 
     rows = json.loads(RESULTS.read_text())
     book = {b["id"]: b for b in json.loads(BOOK.read_text())}
-    judge = AzureGPT5Nano()
-    metrics = build_metrics(judge)
 
     out = json.loads(OUT.read_text()) if OUT.exists() else []
     done = {(r["id"], r["arm"]) for r in out}
 
-    for r in rows:
-        item = book[r["id"]]
-        for arm, d in r["arms"].items():
-            if (r["id"], arm) in done:
-                continue
-            answer = strip_citations(d["answer"])
-            tc = LLMTestCase(
-                input=r["question"],
-                actual_output=answer,
-                expected_output=item["reference_answer"],
-                retrieval_context=[strip_citations(c) for c in d["retrieval_context"]]
-                or ["(no context returned)"],
-            )
-            applicable = list(metrics["all"])
-            if r["tier"] == "global":
-                applicable += metrics["global_only"]
+    tasks = [(r, arm, d, book[r["id"]])
+             for r in rows for arm, d in r["arms"].items()
+             if (r["id"], arm) not in done]
+    print(f"rescoring {len(tasks)} arm-results "
+          f"({args.samples} samples, {args.workers} workers)", file=sys.stderr)
 
-            scores = {}
-            for m in applicable:
-                key, vals = metric_key(m), []
-                for _ in range(args.samples):
-                    try:
-                        m.measure(tc)
-                        vals.append(float(m.score))
-                    except Exception as e:
-                        print(f"   {key} sample failed: {e}", file=sys.stderr)
-                if vals:
-                    scores[key] = round(statistics.median(vals), 4)
-                    # Spread is reported so a difference between arms can be
-                    # checked against the judge's own noise floor.
-                    scores[key + "_spread"] = round(max(vals) - min(vals), 4)
-                    scores[key + "_samples"] = vals
-                else:
-                    scores[key] = None
-            print(f"[{r['id']}|{r['tier']}] {arm}: "
-                  + " ".join(f"{k}={v}" for k, v in scores.items() if not k.endswith(("_spread", "_samples"))),
-                  file=sys.stderr)
+    lock = threading.Lock()
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = [pool.submit(_score_one, t, args.samples) for t in tasks]
+        for f in as_completed(futures):
+            res = f.result()
+            with lock:
+                out.append(res)
+                OUT.write_text(json.dumps(out, indent=2))
 
-            out.append({"id": r["id"], "tier": r["tier"], "category": r["category"],
-                        "question": r["question"], "arm": arm,
-                        "citations_stripped": len(d["answer"]) - len(answer),
-                        "scores": scores})
-            OUT.write_text(json.dumps(out, indent=2))
-
+    out.sort(key=lambda r: (r["id"], r["arm"]))
+    OUT.write_text(json.dumps(out, indent=2))
     report(out)
 
 

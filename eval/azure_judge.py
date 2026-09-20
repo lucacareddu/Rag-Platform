@@ -11,12 +11,14 @@ honest rather than merely working.
 Credentials are read from the azure*.txt files in the repo parent, the same
 source the GraphRAG workspace uses, so there is one place to rotate them.
 """
-import os
+import random
 import re
+import time
 from pathlib import Path
 
 from deepeval.models.base_model import DeepEvalBaseLLM
-from openai import AsyncAzureOpenAI, AzureOpenAI
+from openai import (APIConnectionError, APITimeoutError, AsyncAzureOpenAI,
+                    AzureOpenAI, RateLimitError)
 from pydantic import BaseModel
 
 _CRED_DIR = Path(__file__).resolve().parents[2]
@@ -99,19 +101,38 @@ class AzureGPT5Nano(DeepEvalBaseLLM):
             )
         return schema.model_validate_json(content) if schema else content
 
+    def _retry(self, call, *, attempts: int = 6):
+        """Judging runs many threads against the same deployment, often while an
+        indexing or query run is using it too, so 429s are routine. Without this
+        they surfaced as dropped samples and a `None` metric — which reads in the
+        results exactly like a genuine scoring failure."""
+        delay = 4.0
+        for i in range(attempts):
+            try:
+                return call()
+            except RateLimitError:
+                if i == attempts - 1:
+                    raise
+                time.sleep(delay + random.uniform(0, delay / 2))
+                delay = min(delay * 2, 90)
+            except (APIConnectionError, APITimeoutError):
+                if i == attempts - 1:
+                    raise
+                time.sleep(delay)
+        return None
+
     def generate(self, prompt: str, schema: type[BaseModel] | None = None):
         kw = self._kwargs(prompt, schema)
         if schema is not None:
-            return self._unwrap(self._sync.beta.chat.completions.parse(**kw), schema)
-        return self._unwrap(self._sync.chat.completions.create(**kw), None)
+            return self._unwrap(
+                self._retry(lambda: self._sync.beta.chat.completions.parse(**kw)), schema)
+        return self._unwrap(
+            self._retry(lambda: self._sync.chat.completions.create(**kw)), None)
 
     async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None):
-        kw = self._kwargs(prompt, schema)
-        if schema is not None:
-            return self._unwrap(
-                await self._async.beta.chat.completions.parse(**kw), schema
-            )
-        return self._unwrap(await self._async.chat.completions.create(**kw), None)
+        # DeepEval is driven synchronously here (async_mode=False on every
+        # metric), so the sync path carries the retry logic and this delegates.
+        return self.generate(prompt, schema)
 
 
 if __name__ == "__main__":
