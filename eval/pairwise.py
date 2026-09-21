@@ -125,9 +125,27 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--workers", type=int, default=6)
+    # The budget controls (basic_k40, global_c0) live in a second results file
+    # and need the same judging protocol, so the inputs are parameterised
+    # rather than the script copied. --merge unions the arms of both files on
+    # question id, which is what makes a cross-file pair judgeable at all.
+    ap.add_argument("--merge", help="second results file to union arms from")
+    ap.add_argument("--arms", help="comma-separated arms to compare")
+    ap.add_argument("--out", help="override output path")
     args = ap.parse_args()
 
+    global ARMS, OUT
+    if args.arms:
+        ARMS = args.arms.split(",")
+    if args.out:
+        OUT = Path(args.out)
+
     rows = json.loads(RESULTS.read_text())
+    if args.merge:
+        extra = {r["id"]: r for r in json.loads(Path(args.merge).read_text())}
+        for r in rows:
+            r["arms"].update(extra.get(r["id"], {}).get("arms", {}))
+
     rows = [r for r in rows if all(a in r["arms"] for a in ARMS)]
     print(f"questions with all {len(ARMS)} arms: {len(rows)}", file=sys.stderr)
 
