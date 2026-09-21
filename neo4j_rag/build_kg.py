@@ -89,7 +89,23 @@ async def main():
 
     pipeline = SimpleKGPipeline(
         llm=llm(3000), driver=d, embedder=embedder(),
-        schema={"node_types": NODE_TYPES, "relationship_types": RELATION_TYPES},
+        # additional_relationship_types MUST be True here. The field defaults to
+        # len(relationship_types) == 0, so declaring a relationship vocabulary
+        # silently sets it False and GraphPruning then deletes every edge whose
+        # type is not in that list -- and every node orphaned by those
+        # deletions. Declaring 8 invented types took a chunk that extracted
+        # cleanly as 12 nodes / 21 relationships down to 1 node / 0
+        # relationships, with on_error="IGNORE" hiding it.
+        #
+        # Constraining nodes but not edges is also the faithful analogue of the
+        # arm A graph: GraphRAG constrains entity_types and leaves
+        # relationships as free-text descriptions with no type vocabulary at
+        # all. additional_node_types stays False, which is the schema-guided
+        # cleanliness arm B exists to test.
+        schema={"node_types": NODE_TYPES,
+                "relationship_types": RELATION_TYPES,
+                "additional_node_types": False,
+                "additional_relationship_types": True},
         from_pdf=False,
         text_splitter=FixedSizeSplitter(chunk_size=CHUNK_SIZE,
                                         chunk_overlap=CHUNK_OVERLAP),
@@ -110,6 +126,14 @@ async def main():
             print(f"  [{i}/{len(todo)}] {f.name}: FAILED {str(e)[:150]}",
                   file=sys.stderr)
             continue
+
+        # Stamp the source path onto the Document nodes this run just created.
+        # SimpleKGPipeline does not record it for text= input, so without this
+        # --resume can never match anything and a crash halfway through costs
+        # the whole run again.
+        with d.session() as s:
+            s.run("MATCH (n:Document) WHERE n.path IS NULL SET n.path = $p",
+                  p=str(f))
         print(f"  [{i}/{len(todo)}] {f.name}  {len(text):>8,} chars  "
               f"{time.time() - t:>6.1f}s", file=sys.stderr)
 
