@@ -1,30 +1,5 @@
-"""Arm A: load the existing GraphRAG index into Neo4j. Zero Azure calls.
-
-The GraphRAG branch already paid $1.43 to extract 6,302 entities, 3,248
-relationships, 542 chunks and 550 community reports, and to embed three of
-those sets at 1536 dimensions. All of it is on disk as parquet plus LanceDB,
-and all of it is reusable: this script is a pandas-to-Cypher bulk load with no
-model involved.
-
-That makes it the controlled experiment. Same chunks, same entities, same
-relationships, same embeddings, same generator -- only the retrieval strategy
-differs between this and the GraphRAG arms, so any measured difference is
-attributable to retrieval alone. Arm B (SimpleKGPipeline) rebuilds the graph
-with Neo4j's own extractor and is therefore confounded with extraction
-differences; it answers a different question and is kept separate.
-
-Namespacing: Neo4j Community has no multi-database support, so arm A and arm B
-cannot be separated by database. Arm A uses a GR* label prefix; arm B writes
-the library's default labels. They coexist without collision.
-
-Verified before writing a line of this (each was a silent-corruption risk):
-  - entity titles are unique, 6302/6302, so matching relationships by title is
-    unambiguous -- relationships.parquet stores source/target as TITLES, not ids
-  - 0 relationships reference an unknown entity
-  - LanceDB ids align exactly with parquet ids: 6302/6302 and 542/542
-  - no nulls in entity.description, relationship.description or text_unit.text
-
-Run: .venv-neo4j/bin/python neo4j_rag/load_graphrag.py [--wipe]
+"""Arm A: bulk-load the existing GraphRAG parquet + LanceDB index into Neo4j. Zero Azure calls,
+zero new extraction -- so any measured difference vs GraphRAG is attributable to retrieval alone.
 """
 import argparse
 import os
@@ -164,8 +139,7 @@ def main():
         """, [{"entity": r.id, "chunk": c} for r in ent.itertuples()
               for c in r.text_unit_ids], "MENTIONED_IN")
 
-        # Matched on title: relationships.parquet stores names, and titles were
-        # verified unique so this cannot bind the wrong node.
+        # Matched on title: relationships.parquet stores names, and titles are verified unique.
         run_batched(s, """
             UNWIND $rows AS r
             MATCH (a:GREntity {title: r.source}), (b:GREntity {title: r.target})
@@ -216,8 +190,7 @@ def verify(s):
     for k, q in checks.items():
         print(f"  {k:<16} {s.run(q).single()['c']:>7}", file=sys.stderr)
 
-    # An entity or chunk without a vector is invisible to every vector
-    # retriever, and would look like a retrieval failure rather than a load bug.
+    # A missing vector is invisible to every retriever -- looks like a retrieval failure, isn't.
     for lbl in ["GREntity", "GRChunk", "GRCommunity"]:
         n = s.run(f"MATCH (n:{lbl}) WHERE n.embedding IS NULL "
                   f"RETURN count(n) AS c").single()["c"]

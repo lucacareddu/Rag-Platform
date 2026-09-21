@@ -1,29 +1,5 @@
-"""Is this corpus actually a fit for GraphRAG? Measured, not argued. No Azure calls.
-
-GraphRAG was evaluated by Edge et al. on podcast transcripts and news articles.
-Those corpora share a property this one may not: the same ENTITIES recur across
-many source documents -- a politician in fifty news stories, a guest referenced
-across episodes. That recurrence is the entire mechanism. Leiden clusters
-entities by edge density, community reports summarise those clusters, and a
-cluster only bridges documents if its entities appear in more than one.
-
-A corpus of standards documents might behave differently. Each NIST publication
-is already a self-contained topic, and its "entities" are abstract concepts
-(PROCESS, ARTIFACT, CONTROL) rather than actors that appear in other people's
-documents. If most entities occur in exactly one document, the graph cannot
-bridge, and the measured failures follow mechanically rather than from any
-defect in the implementation:
-
-  - local search hit 0 of 18 gold units
-  - entity-anchored Cypher reached only 3-4 of 18
-  - cross-document recall collapsed to 0.267 for vector, 0.067-0.167 for the
-    entity-anchored arms
-
-The diagnostics below distinguish "GraphRAG does not work" from "GraphRAG had
-nothing to work with here". They are structural properties of the built graph,
-so they cost nothing and cannot be noisy.
-
-Run: .venv-neo4j/bin/python neo4j_rag/corpus_fit.py
+"""Is this corpus a fit for GraphRAG, measured not argued? GraphRAG's mechanism needs entities
+recurring across documents; structural diagnostics here check whether this one has that.
 """
 import statistics
 import sys
@@ -51,8 +27,7 @@ def main():
         n_chunk = q1(s, "MATCH (c:GRChunk) RETURN count(c) AS c", "c")
         print(f"\n  {n_doc} documents, {n_chunk} chunks, {n_ent} entities")
 
-        # THE diagnostic. An entity confined to one document cannot connect it
-        # to another, no matter how the communities are clustered.
+        # THE diagnostic: an entity confined to one document cannot bridge to another.
         print("\n  How many documents does each entity appear in?")
         dist = {r["ndocs"]: r["c"] for r in s.run("""
             MATCH (e:GREntity)-[:MENTIONED_IN]->(:GRChunk)-[:PART_OF]->(d:GRDocument)
@@ -72,8 +47,7 @@ def main():
         print(f"    multi-document entities:  {multi:>5} "
               f"({100*multi/total:.1f}%)   <- the only ones that can bridge")
 
-        # An entity mentioned once is a hapax: it cannot anchor retrieval and
-        # it cannot join a meaningful community.
+        # A hapax (mentioned once) can't anchor retrieval or join a meaningful community.
         print("\n  Entity connectivity:")
         for label, cypher in [
             ("mentioned in exactly 1 chunk",
@@ -92,8 +66,7 @@ def main():
         print(f"    mean RELATED degree              "
               f"{statistics.mean(degs):>6.1f}")
 
-        # A relationship whose endpoints sit in different documents is a literal
-        # cross-document bridge. This is what global search exploits.
+        # Endpoints in different documents = a literal cross-document bridge.
         print("\n  Cross-document bridges (RELATED edges spanning two documents):")
         r = s.run("""
             MATCH (a:GREntity)-[:RELATED]-(b:GREntity)
@@ -108,8 +81,7 @@ def main():
             print(f"    spanning different documents:   {r['cross']:>6} "
                   f"({100*r['cross']/r['allpairs']:.1f}%)")
 
-        # Communities are the unit global search summarises. A community drawn
-        # from one document summarises that document, not the corpus.
+        # A community drawn from one document summarises that document, not the corpus.
         print("\n  Community spread (how many documents each community covers):")
         rows = [(r["level"], r["ndocs"], r["c"]) for r in s.run("""
             MATCH (com:GRCommunity)-[:HAS_ENTITY]->(e:GREntity)

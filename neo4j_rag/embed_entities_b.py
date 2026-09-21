@@ -1,22 +1,5 @@
-"""Embed arm B's entities so the entity-anchored path can be compared. ~$0.001.
-
-SimpleKGPipeline embeds chunks but not entities, so arm B has no entity vector
-index and the entity-anchored retrieval that arm A was tested on cannot run
-against it.
-
-An asymmetry to keep in view when reading the comparison, because it favours
-arm A and is not something this script can fix: arm A's entity embeddings are
-computed over GraphRAG's LLM-generated entity DESCRIPTIONS, a stage that cost
-$0.17 during indexing. Arm B's entities carry only a name -- Neo4j's extractor
-stores no description -- so the best available text here is "Label: name". A
-bare name is a weaker retrieval signal than a paragraph of description, and
-any gap in arm B's favour would be despite that, not because of it.
-
-1,991 entities at roughly 20 tokens each is about 40k tokens, well under a cent
-on text-embedding-3-small. The embedder is the same deployment used everywhere
-else, so vectors stay comparable across arms.
-
-Run: .venv-neo4j/bin/python neo4j_rag/embed_entities_b.py
+"""Embed arm B's entities (~$0.001) so entity-anchored retrieval can be compared to arm A. Arm B
+has no entity descriptions, only names -- a weaker signal that favours arm A in the comparison.
 """
 import sys
 from pathlib import Path
@@ -30,9 +13,7 @@ BATCH = 256
 
 
 def batch_embedder():
-    """neo4j-graphrag's wrapper exposes only embed_query (one text per call),
-    which would mean 1,991 sequential round-trips. The underlying Azure client
-    takes a list, so use it directly -- same deployment, same vectors."""
+    """Uses the Azure client directly for batching -- the library wrapper only exposes embed_query."""
     from openai import AzureOpenAI
     v = dict(l.split("=", 1) for l in (ROOT / "graphrag/.env").read_text().splitlines()
              if "=" in l and not l.startswith("#"))

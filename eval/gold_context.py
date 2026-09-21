@@ -1,17 +1,5 @@
-"""Resolve gold text units for the answerable questions in test_book_v3.
-
-Retrieval was never measured in isolation — only end-to-end answer quality.
-This builds the reference set that makes retrieval measurable: for each
-question, the GraphRAG text units that actually contain its answer, found by
-regex anchor rather than by hand so the set cannot drift from the corpus.
-
-Only the local and cross-document tiers get a gold set. Sensemaking questions
-have no answer-bearing chunk by construction — that is what makes them
-sensemaking questions — and the negative control has no answer at all. Scoring
-those against a chunk set would report 0.000 by definition rather than by
-performance, which is the mistake that made the previous evaluation useless.
-
-Run: python3 eval/gold_context.py
+"""Resolve gold text units for test_book_v3's local/cross-document questions, by regex anchor
+so the set can't drift from the corpus. Sensemaking and negative-control tiers have no gold set.
 """
 import json
 import re
@@ -27,8 +15,7 @@ OUT = Path(__file__).parent / "gold_context.json"
 ANCHORS = {
     1: [("SP800-88", r"Clear applies logical techniques"),
         ("SP800-88", r"Purge applies physical or logical")],
-    # Short anchors: the full tenet sentences carry line breaks from the PDF
-    # extraction, so a long literal phrase never matches the chunked text.
+    # Short anchors: PDF-extraction line breaks mean a long literal phrase never matches.
     2: [("SP800-207", r"considered resources"),
         ("SP800-207", r"secured regardless")],
     3: [("SP800-37", r"Categorize|Prepare.{0,80}Categorize"),

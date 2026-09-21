@@ -1,34 +1,5 @@
-"""Arm B: rebuild the knowledge graph with Neo4j's own SimpleKGPipeline.
-
-Arm A reused GraphRAG's graph, so it isolates retrieval. Arm B rebuilds the
-graph from the same source documents with Neo4j's extractor, so it isolates
-EXTRACTION -- and is therefore confounded with retrieval by construction. The
-two answer different questions and are kept apart deliberately:
-
-  A  same graph, different retriever   -> is Neo4j's retrieval better?
-  B  same documents, different graph   -> is schema-guided extraction better?
-
-The difference that makes B worth its cost: GraphRAG extracts open-endedly with
-type hints, and the resulting graph has ORGANIATION and ORGANAIZATION next to
-ORGANIZATION, a THREAT<VULNERABILITY, and 331 entities with an empty type.
-Neo4j's extraction is schema-guided -- node types, relationship types and
-allowed patterns are declared up front and the model is constrained to them --
-so the type vocabulary should be clean by construction. Whether a cleaner,
-smaller graph retrieves better is the actual question.
-
-COST CONTROL. This is the only script in the Neo4j work that spends real money,
-so it is built to fail cheaply:
-  --limit N    process only N chunks (smoke test before the full run)
-  --resume     skip documents already written, so a crash does not re-pay
-Estimated full run: 542 chunks, ~1.46M input / ~0.43M output tokens, ~$0.26.
-gpt-5-nano's constraints (temperature must be 1, reasoning_effort must be
-minimal or output is empty while still billing) are set in retrievers.llm().
-
-The schema below mirrors GraphRAG's entity_types so the two graphs are
-comparable, minus the junk categories GraphRAG's open extraction invented.
-
-Run: .venv-neo4j/bin/python neo4j_rag/build_kg.py --limit 3   # smoke test
-     .venv-neo4j/bin/python neo4j_rag/build_kg.py             # full
+"""Arm B: rebuild the graph with Neo4j's schema-guided SimpleKGPipeline, isolating extraction
+(arm A isolates retrieval instead). Spends real money; use --limit for a smoke test, ~$0.26 full.
 """
 import argparse
 import asyncio
@@ -45,9 +16,7 @@ from neo4j_graphrag.experimental.pipeline.kg_builder import SimpleKGPipeline
 from retrievers import driver, embedder, llm
 
 ROOT = Path(__file__).resolve().parents[1]
-# The .txt files GraphRAG itself indexed, not the source PDFs. Using the same
-# extracted text removes PDF parsing as a confound: arm A and arm B then differ
-# only in how entities are extracted from identical characters.
+# Same .txt files GraphRAG indexed (not the source PDFs), so A and B differ only in extraction.
 DOCS = ROOT / "graphrag/input"
 
 # Mirrors GraphRAG's extract_graph.entity_types so the graphs are comparable.
@@ -57,8 +26,7 @@ NODE_TYPES = ["Organization", "Person", "Framework", "Control", "Process",
 RELATION_TYPES = ["DEFINES", "REQUIRES", "MITIGATES", "REFERENCES", "PART_OF",
                   "APPLIES_TO", "PUBLISHED_BY", "RELATED_TO"]
 
-# GraphRAG used 1200 tokens / 100 overlap. FixedSizeSplitter counts characters,
-# so ~4 chars per token keeps the chunking comparable rather than identical.
+# GraphRAG used 1200 tokens/100 overlap; ~4 chars/token keeps chunking comparable, not identical.
 CHUNK_SIZE = 4800
 CHUNK_OVERLAP = 400
 
@@ -89,19 +57,8 @@ async def main():
 
     pipeline = SimpleKGPipeline(
         llm=llm(3000), driver=d, embedder=embedder(),
-        # additional_relationship_types MUST be True here. The field defaults to
-        # len(relationship_types) == 0, so declaring a relationship vocabulary
-        # silently sets it False and GraphPruning then deletes every edge whose
-        # type is not in that list -- and every node orphaned by those
-        # deletions. Declaring 8 invented types took a chunk that extracted
-        # cleanly as 12 nodes / 21 relationships down to 1 node / 0
-        # relationships, with on_error="IGNORE" hiding it.
-        #
-        # Constraining nodes but not edges is also the faithful analogue of the
-        # arm A graph: GraphRAG constrains entity_types and leaves
-        # relationships as free-text descriptions with no type vocabulary at
-        # all. additional_node_types stays False, which is the schema-guided
-        # cleanliness arm B exists to test.
+        # MUST be True: defaults False when relationship_types is set, and GraphPruning then
+        # deletes every non-listed edge plus orphaned nodes (12 nodes/21 rels -> 1/0, silently).
         schema={"node_types": NODE_TYPES,
                 "relationship_types": RELATION_TYPES,
                 "additional_node_types": False,
@@ -127,10 +84,7 @@ async def main():
                   file=sys.stderr)
             continue
 
-        # Stamp the source path onto the Document nodes this run just created.
-        # SimpleKGPipeline does not record it for text= input, so without this
-        # --resume can never match anything and a crash halfway through costs
-        # the whole run again.
+        # SimpleKGPipeline doesn't record path for text= input; stamp it so --resume can match.
         with d.session() as s:
             s.run("MATCH (n:Document) WHERE n.path IS NULL SET n.path = $p",
                   p=str(f))

@@ -1,25 +1,5 @@
-"""Retrieval-only scoring for the Neo4j arms. One embedding call per query.
-
-This is the cheap, decisive measurement, and it is deliberately run before any
-generation. Chunks carry their GraphRAG ids through the load, so a retrieved
-chunk can be compared to the gold set by EXACT ID rather than by text overlap:
-no judge, no embedding similarity, no temperature, nothing to be noisy. Re-run
-it and the numbers are identical.
-
-The baseline it has to beat is already measured on the same 9 questions and the
-same 18 gold units:
-
-  basic (vector, ~9 chunks)      7 of 18 gold units, precision 0.212
-  local (GraphRAG entity-anchor) 0 of 18 gold units
-
-local's zero is the interesting one. It anchors on the same entity-description
-embeddings these arms use, so it had the information needed and still returned
-none of the answer-bearing chunks -- its traversal is fixed and its 12k budget
-goes mostly to entities, relationships and community reports. entity_cypher
-and entity_expand keep the anchor and spend the whole budget on chunks. If the
-graph anchor is useful at all, it shows up here.
-
-Run: .venv-neo4j/bin/python neo4j_rag/eval_retrieval.py [--top-k 10]
+"""Retrieval-only scoring for the Neo4j arms, one embedding call per query. Chunks carry their
+GraphRAG ids through the load, so hits are scored by exact id, not text overlap or a judge.
 """
 import argparse
 import ast

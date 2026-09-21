@@ -1,26 +1,5 @@
-"""Arm A vs arm B: retrieval scored across two different chunkings.
-
-The exact-id metric used in eval_retrieval.py cannot compare these arms. Arm A
-reuses GraphRAG's 542 chunks; arm B's SimpleKGPipeline re-split the same
-documents into 664 chunks with different boundaries, so no gold chunk id exists
-in arm B's graph and every score would be 0.000 by construction -- the exact
-failure mode that has already produced two false results in this experiment.
-
-So the metric here is chunking-independent. Each gold unit was originally
-DEFINED by an (document fragment, regex) anchor pair in gold_context.py; a
-retrieved chunk counts as hitting that gold unit when it comes from the right
-document AND matches the same regex. That is the identical criterion which
-selected the gold units in the first place, so it is not a looser proxy -- it
-is the definition, applied to whatever chunking the arm happens to use.
-
-Both arms are scored by this one metric, so the comparison is fair even though
-their chunk boundaries differ. Arm A is additionally scored by exact id in
-eval_retrieval.py, and the two should roughly agree for it; they are reported
-side by side so any divergence is visible rather than hidden.
-
-Cost: one embedding call per query per arm. No generation, no judge.
-
-Run: .venv-neo4j/bin/python neo4j_rag/eval_ab.py [--top-k 10]
+"""Arm A vs arm B, scored chunking-independently: a hit is (right document AND matches the same
+regex anchor that defined the gold unit), since A and B split chunks differently.
 """
 import argparse
 import json
@@ -41,9 +20,7 @@ OUT = ROOT / "eval/results_neo4j_ab.json"
 
 IDX_B = "b_chunk_embedding"
 
-# Copied verbatim from gold_context.py, which used these to SELECT the gold
-# units. Reusing them to score is therefore applying the original definition,
-# not approximating it.
+# Copied from gold_context.py: reusing the selection criterion as the scoring criterion.
 ANCHORS = {
     1: [("SP800-88", r"Clear applies logical techniques"),
         ("SP800-88", r"Purge applies physical or logical")],
@@ -81,11 +58,8 @@ def ensure_index_b(d):
               file=sys.stderr)
 
 
-# Returning the document title from the same query removes a fragile join.
-# The first version matched retrieved text back to the graph with
-# `WHERE c.text = $t` to find its document; that lookup silently returned no
-# row, every title came back empty, and arm B scored 0/20 -- retrieval was
-# fine, the scoring join was not.
+# Returns the title from the same query -- a prior `WHERE c.text = $t` join silently failed
+# and scored arm B 0/20 on a scoring bug, not a retrieval failure.
 Q_A = """
 WITH node AS c, score
 MATCH (c)-[:PART_OF]->(d:GRDocument)

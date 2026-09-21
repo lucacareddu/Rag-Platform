@@ -1,22 +1,5 @@
-"""Recover arm B's document provenance. No Azure calls.
-
-SimpleKGPipeline sets Document.path = 'document.txt' for text= input, a
-constant. build_kg.py tried to stamp the real source path afterwards with
-`WHERE n.path IS NULL`, which never matched because the property was already
-set to that default. All 11 Document nodes therefore carried the same name and
-every chunk looked like it came from the same file.
-
-This is not cosmetic. eval_ab.py scores a retrieved chunk as hitting a gold
-anchor only when it comes from the right document, so identical titles scored
-arm B 0/20 while its retrieval was in fact working -- the third time in this
-experiment that a scoring defect has imitated total retrieval failure.
-
-Recovery is exact and free: each chunk's text is a verbatim substring of
-exactly one source file, so matching one chunk per Document identifies it. The
-match is verified against all 11 files and refuses to guess when a chunk is
-ambiguous or absent.
-
-Run: .venv-neo4j/bin/python neo4j_rag/fix_doc_provenance.py
+"""Recover arm B's document provenance: SimpleKGPipeline set every Document.path to the same
+constant, so every chunk looked like it came from one file. Fixed by matching chunk text to source.
 """
 import sys
 from pathlib import Path

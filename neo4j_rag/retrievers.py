@@ -1,43 +1,5 @@
-"""Neo4j retrievers over the loaded GraphRAG graph (arm A).
-
-Five strategies. The first is a control, the middle three are the ones with
-something to prove, and the last is a capability neither GraphRAG arm has.
-
-  vector          VectorRetriever over GRChunk. Plain vector RAG over the same
-                  542 chunks and the same 1536-d embeddings GraphRAG's basic
-                  arm searched. It should roughly reproduce basic's numbers; if
-                  it does not, the load or the query embedder is wrong, and
-                  that is worth knowing before trusting anything else here.
-
-  entity_cypher   VectorCypherRetriever: vector search over ENTITY DESCRIPTION
-                  embeddings, then traverse MENTIONED_IN to the chunks those
-                  entities appear in. This is the arm with a real hypothesis
-                  behind it. GraphRAG's local search anchors on the same entity
-                  embeddings and still hit 0 of 18 gold units, because its
-                  traversal is fixed and its 12k budget is split across
-                  entities, relationships and community reports, leaving few
-                  slots for source text. Here the traversal is ours and the
-                  budget goes entirely to chunks.
-
-  entity_expand   As above plus one hop along RELATED before collecting chunks.
-                  Tests whether neighbour entities pull in the second document
-                  on cross-document questions, where vector recall collapsed
-                  from 0.750 to 0.267.
-
-  hybrid          HybridRetriever: vector plus the fulltext index. Cheap
-                  insurance for questions that hinge on an exact term the
-                  embedding smooths over.
-
-  text2cypher     Text2CypherRetriever. Translates the question to Cypher and
-                  runs it. This is the only strategy here that can ANSWER an
-                  enumeration question exactly -- "how many of these
-                  publications discuss X" -- because it aggregates over the
-                  graph instead of sampling top-k. Vector search structurally
-                  cannot do this and global search only approximates it.
-
-Cost: retrieval is one embedding call per query (text2cypher is one chat call
-instead). Generation is separate and opt-in, so retrieval quality can be scored
-against gold chunks for effectively nothing.
+"""Five Neo4j retrievers over the loaded GraphRAG graph (arm A): vector (control), entity_cypher
+and entity_expand (entity-anchored traversal), hybrid, and text2cypher (exact enumeration).
 """
 import os
 import subprocess
@@ -103,9 +65,7 @@ def driver():
     return GraphDatabase.driver(URI, auth=("neo4j", password()))
 
 
-# Entity hits are deduplicated to chunks and ranked by the best entity score
-# that reached them, so a chunk surfaced by several matching entities ranks
-# above one reached by a single weak match.
+# Dedup to chunks, ranked by best entity score -- multiple matching entities rank a chunk higher.
 ENTITY_TO_CHUNKS = """
 WITH node AS e, score
 MATCH (e)-[:MENTIONED_IN]->(c:GRChunk)
@@ -116,8 +76,7 @@ ORDER BY s DESC
 LIMIT %d
 """
 
-# One hop along RELATED before collecting chunks. The neighbour's own score is
-# discounted so a directly matched entity still outranks a neighbour of one.
+# One RELATED hop before collecting chunks; neighbour score discounted so direct matches rank higher.
 ENTITY_EXPAND_TO_CHUNKS = """
 WITH node AS e, score
 OPTIONAL MATCH (e)-[:RELATED]-(n:GREntity)
@@ -133,8 +92,7 @@ ORDER BY s DESC
 LIMIT %d
 """
 
-# The schema handed to Text2Cypher. Written out rather than introspected so the
-# model sees the GR* namespace and not arm B's labels once both are loaded.
+# Written out rather than introspected, so the model sees only the GR* namespace, not arm B's.
 SCHEMA = """
 Node properties:
 GRDocument {id: STRING, title: STRING}
@@ -180,10 +138,7 @@ def build(names=None, top_k: int = 20) -> dict:
         "vector": lambda: VectorRetriever(
             d, index_name=IDX_CHUNK, embedder=emb,
             return_properties=["id", "text"]),
-        # The chunk LIMIT is bound to top_k so every arm returns the same
-        # number of chunks; leaving it hardcoded made the Cypher arms return 20
-        # while vector returned top_k, which would have scored budget, not
-        # retrieval.
+        # LIMIT bound to top_k so every arm returns the same count -- else the score reflects budget.
         "entity_cypher": lambda: VectorCypherRetriever(
             d, index_name=IDX_ENTITY, embedder=emb,
             retrieval_query=ENTITY_TO_CHUNKS % top_k),
