@@ -1,0 +1,198 @@
+### Official Microsoft GraphRAG, Azure OpenAI backend.
+###
+### Two settings here are not optional and will silently produce an empty index
+### if changed:
+###
+### reasoning_effort: minimal — gpt-5-nano is a reasoning model. At its default
+###   effort it spends the entire completion budget on hidden reasoning tokens
+###   and returns an empty string, with finish_reason "length". Every extraction
+###   call would parse as zero entities and the index would build cleanly with
+###   nothing in it.
+### temperature: 1 — gpt-5 models reject any other value. litellm's drop_params
+###   does not rewrite it, it only drops params the model does not accept at all.
+
+models:
+  default_chat_model:
+    type: chat
+    model_provider: azure
+    auth_type: api_key
+    api_key: ${GRAPHRAG_API_KEY}
+    api_base: ${GRAPHRAG_API_BASE}
+    api_version: ${GRAPHRAG_API_VERSION}
+    deployment_name: ${GRAPHRAG_DEPLOYMENT}
+    model: gpt-5-nano
+    model_supports_json: true
+    temperature: 1
+    max_tokens: null
+    # Sized to the largest output any remaining stage asks for (community
+    # reports cap at 2000 tokens) rather than left generous. GraphRAG's rate
+    # limiter reserves this entire value against the token budget for every
+    # call, on top of the real input — so an 8000 budget silently capped
+    # throughput at ~22 calls/min for description summaries whose actual output
+    # is under 500 tokens. This is a throughput setting, not just a safety cap.
+    max_completion_tokens: 3000
+    reasoning_effort: minimal
+    # The binding constraint is per-call latency, not the quota. gpt-5-nano
+    # averages ~3 minutes per call here, so concurrency alone sets throughput:
+    # 40 in flight sustained 14 requests/min and 80 sustained 27, against a
+    # deployment that allows 250/min. 140 projects to ~47 requests/min.
+    # The tokens_per_minute limiter below is what keeps community reporting,
+    # whose inputs are ~8k tokens each, from overrunning the 250k token ceiling
+    # at that request rate.
+    concurrent_requests: 140
+    async_mode: threaded
+    retry_strategy: exponential_backoff
+    max_retries: 10
+    # Deployment limits measured from the Azure rate-limit headers:
+    # 250 requests/min and 250k tokens/min. Left with headroom so retries
+    # are not themselves rate limited.
+    requests_per_minute: 200
+    # Close to the deployment's real 250k ceiling. Safe because the limiter
+    # over-reserves per call (see max_completion_tokens above), so measured
+    # consumption stays well below what is booked here.
+    tokens_per_minute: 240000
+  default_embedding_model:
+    type: embedding
+    model_provider: azure
+    auth_type: api_key
+    api_key: ${GRAPHRAG_EMBED_API_KEY}
+    api_base: ${GRAPHRAG_EMBED_API_BASE}
+    # Quoted: the embedding api-version is a bare date, which YAML would
+    # otherwise load as a datetime.date and fail string validation.
+    api_version: "${GRAPHRAG_EMBED_API_VERSION}"
+    deployment_name: ${GRAPHRAG_EMBED_DEPLOYMENT}
+    model: text-embedding-3-small
+    concurrent_requests: 8
+    async_mode: threaded
+    retry_strategy: exponential_backoff
+    max_retries: 10
+    # Embedding deployment is a separate 150k TPM bucket.
+    tokens_per_minute: 120000
+
+### Input settings ###
+
+input:
+  storage:
+    type: file
+    base_dir: "input"
+  file_type: text
+
+chunks:
+  size: 1200
+  overlap: 100
+  group_by_columns: [id]
+
+### Output/storage settings ###
+
+output:
+  type: file
+  base_dir: "output"
+
+cache:
+  type: file
+  base_dir: "cache"
+
+reporting:
+  type: file
+  base_dir: "logs"
+
+vector_store:
+  default_vector_store:
+    type: lancedb
+    db_uri: output/lancedb
+    container_name: default
+
+### Workflow settings ###
+
+embed_text:
+  model_id: default_embedding_model
+  vector_store_id: default_vector_store
+
+extract_graph:
+  model_id: default_chat_model
+  prompt: "prompts/extract_graph.txt"
+  # The shipped default is [organization, person, geo, event], tuned for news
+  # articles. On NIST special publications that yields authors, NIST itself and
+  # a scattering of agencies — publication metadata, not subject matter. These
+  # types are what the documents are actually about.
+  # Retargeted for the incident corpus. Reusing the NIST vocabulary
+  # (framework, control, publication) would handicap this corpus by asking the
+  # extractor for categories its text does not contain, which would confound a
+  # corpus-fit comparison with a configuration mismatch.
+  entity_types:
+    [
+      organization,
+      person,
+      threat_actor,
+      malware,
+      vulnerability,
+      technology,
+      country,
+      government_agency,
+      company,
+      attack_technique,
+      sector,
+      incident,
+    ]
+  max_gleanings: 1
+
+summarize_descriptions:
+  model_id: default_chat_model
+  prompt: "prompts/summarize_descriptions.txt"
+  max_length: 500
+
+extract_graph_nlp:
+  text_analyzer:
+    extractor_type: regex_english
+  async_mode: threaded
+
+cluster_graph:
+  max_cluster_size: 10
+
+extract_claims:
+  enabled: false
+  model_id: default_chat_model
+  prompt: "prompts/extract_claims.txt"
+  description: "Any claims or facts that could be relevant to information discovery."
+  max_gleanings: 1
+
+community_reports:
+  model_id: default_chat_model
+  graph_prompt: "prompts/community_report_graph.txt"
+  text_prompt: "prompts/community_report_text.txt"
+  max_length: 2000
+  max_input_length: 8000
+
+embed_graph:
+  enabled: false
+
+umap:
+  enabled: false
+
+snapshots:
+  graphml: true
+  embeddings: false
+
+### Query settings ###
+
+local_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/local_search_system_prompt.txt"
+
+global_search:
+  chat_model_id: default_chat_model
+  map_prompt: "prompts/global_search_map_system_prompt.txt"
+  reduce_prompt: "prompts/global_search_reduce_system_prompt.txt"
+  knowledge_prompt: "prompts/global_search_knowledge_system_prompt.txt"
+
+drift_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/drift_search_system_prompt.txt"
+  reduce_prompt: "prompts/drift_search_reduce_prompt.txt"
+
+basic_search:
+  chat_model_id: default_chat_model
+  embedding_model_id: default_embedding_model
+  prompt: "prompts/basic_search_system_prompt.txt"

@@ -50,9 +50,10 @@ RESPONSE_TYPE = "Multiple Paragraphs"
 # --------------------------------------------------------------------------
 # Index artifacts
 # --------------------------------------------------------------------------
-def load_index():
-    cfg = load_config(GRAPHRAG_ROOT)
-    out = GRAPHRAG_ROOT / "output"
+def load_index(root=None):
+    root = root or GRAPHRAG_ROOT
+    cfg = load_config(root)
+    out = root / "output"
     art = {n: pd.read_parquet(out / f"{n}.parquet")
            for n in ["entities", "communities", "community_reports",
                      "text_units", "relationships"]}
@@ -97,6 +98,22 @@ async def run_arm(arm: str, question: str, cfg, art) -> dict:
     if arm == "basic":
         resp, ctx = await api.basic_search(
             config=cfg, text_units=art["text_units"], query=question)
+    elif arm == "basic_k40":
+        # Budget-matched vector RAG. BOTH knobs are needed: the default is
+        # k=10 AND max_context_tokens=12000, and with 1200-token chunks the
+        # token cap binds first, so raising k alone changes nothing.
+        cfg.basic_search.k = 40
+        cfg.basic_search.max_context_tokens = 50_000
+        resp, ctx = await api.basic_search(
+            config=cfg, text_units=art["text_units"], query=question)
+    elif arm == "global_c0":
+        # Root communities only -- the configuration Edge et al. recommend,
+        # and ~15x cheaper than level 2 with comparable measured quality.
+        resp, ctx = await api.global_search(
+            config=cfg, entities=art["entities"], communities=art["communities"],
+            community_reports=art["community_reports"],
+            community_level=0, dynamic_community_selection=False,
+            response_type=RESPONSE_TYPE, query=question)
     elif arm == "local":
         resp, ctx = await api.local_search(
             config=cfg, entities=art["entities"], communities=art["communities"],
@@ -229,11 +246,17 @@ def main():
     ap.add_argument("--book", default=str(BOOK))
     ap.add_argument("--no-score", action="store_true",
                     help="generate answers only, skip judging")
+    ap.add_argument("--root", help="graphrag root (default: graphrag/)")
+    ap.add_argument("--out", help="results file override")
     args = ap.parse_args()
     arms = args.arms.split(",")
 
+    global RESULTS
+    if args.out:
+        RESULTS = Path(args.out)
+
     book = json.loads(Path(args.book).read_text())
-    cfg, art = load_index()
+    cfg, art = load_index(Path(args.root) if args.root else None)
     print(f"index: {len(art['text_units'])} text units, {len(art['entities'])} entities, "
           f"{len(art['relationships'])} relationships, "
           f"{len(art['community_reports'])} community reports", file=sys.stderr)
@@ -246,7 +269,8 @@ def main():
 
     for item in book:
         row = by_id.setdefault(item["id"], {
-            "id": item["id"], "tier": item["tier"], "category": item["category"],
+            "id": item["id"], "tier": item["tier"],
+            "category": item.get("category", item["tier"]),
             "question": item["question"], "arms": {},
         })
         for arm in arms:

@@ -129,12 +129,15 @@ def main():
     # and need the same judging protocol, so the inputs are parameterised
     # rather than the script copied. --merge unions the arms of both files on
     # question id, which is what makes a cross-file pair judgeable at all.
+    ap.add_argument("--results", help="answers file to judge (default: results_graphrag.json)")
     ap.add_argument("--merge", help="second results file to union arms from")
     ap.add_argument("--arms", help="comma-separated arms to compare")
     ap.add_argument("--out", help="override output path")
     args = ap.parse_args()
 
-    global ARMS, OUT
+    global ARMS, OUT, RESULTS
+    if args.results:
+        RESULTS = Path(args.results)
     if args.arms:
         ARMS = args.arms.split(",")
     if args.out:

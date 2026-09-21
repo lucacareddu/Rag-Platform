@@ -1,0 +1,8 @@
+# Generated index artifacts and the LLM call cache — large, rebuildable, and
+# derived entirely from input/ plus settings.yaml.
+output/
+cache/
+logs/
+# Extracted document text: regenerated from documents/ by the pdfplumber pass,
+# and the PDFs themselves are already out of the repo.
+input/
