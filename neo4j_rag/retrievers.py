@@ -150,11 +150,25 @@ Relationships:
 (:GREntity)-[:RELATED {description: STRING, weight: FLOAT}]->(:GREntity)
 (:GRCommunity)-[:HAS_ENTITY]->(:GREntity)
 
-Notes:
-- GRDocument.title is the publication name, e.g. 'NIST.SP.800-207'.
-- To find which publications mention a concept, match GREntity by title or
-  description, then go through MENTIONED_IN and PART_OF to GRDocument.
-- Always return document titles rather than ids when asked which publications.
+IMPORTANT data facts (verified against the database):
+- GREntity.type is UPPERCASE. Common values: PROCESS, ARTIFACT, PUBLICATION,
+  CONTROL, FRAMEWORK, ORGANIZATION, TECHNOLOGY, THREAT, PERSON, ROLE,
+  VULNERABILITY. Some rows have misspelled or empty types, so prefer matching
+  on title/description text over filtering by type when the question is
+  topical.
+- GREntity.title is UPPERCASE, e.g. 'ZERO TRUST ARCHITECTURE'. Use
+  toUpper() or case-insensitive regex (=~ '(?i).*term.*') when matching.
+- GRDocument.title is a FILENAME, e.g.
+  'SP800-207_Zero_Trust_Architecture.txt'. Match with CONTAINS on a fragment
+  such as 'SP800-207', never equality.
+- There are exactly 11 GRDocument nodes.
+
+Query rules:
+- Return literal values only. NEVER use query parameters such as $query or
+  $name; inline every value into the Cypher.
+- To find which publications cover a concept: match GREntity on title or
+  description, then traverse MENTIONED_IN and PART_OF to GRDocument, and
+  return DISTINCT d.title.
 """
 
 
