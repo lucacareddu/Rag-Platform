@@ -1,39 +1,5 @@
-"""Deterministic ragas metrics — answer quality and retrieval, no judge.
-
-Every LLM-judged number in this experiment carries the same defect: gpt-5-nano
-rejects any temperature but 1, so the judge cannot be made reproducible. Its
-measured spread on unchanged input averaged 0.24 while the gaps between arms
-averaged 0.10. These metrics have no such problem. They are pure string and
-embedding computations, so re-running this script returns exactly the same
-numbers, and they cost nothing.
-
-  RETRIEVER — retrieved context vs the gold text units
-    context_precision   of what was retrieved, how much was gold
-    context_recall      of the gold, how much was retrieved
-  Scored only for the 9 questions that have an answer-bearing chunk. The
-  sensemaking tier has none by construction, and scoring it here would report
-  0.000 by definition rather than by performance.
-
-  ANSWER — generated answer vs the reference answer
-    rouge_l             longest-common-subsequence overlap
-    bleu                n-gram precision
-    string_similarity   normalised edit distance
-    semantic_similarity embedding cosine (needs the embedder, still no LLM)
-
-READ THE ANSWER METRICS WITH CARE. ROUGE, BLEU and edit distance reward surface
-overlap with the reference wording, so they systematically favour short answers
-that echo the reference phrasing. The reference answers here run a few hundred
-characters while global search produces ~8,900 and dynamic ~7,500. Those arms
-will score low on these metrics for being long and differently worded, not for
-being wrong — which is precisely the artefact that made the previous
-experiment's ROUGE gains meaningless. semantic_similarity is the fairest of the
-four because it compares meaning rather than tokens; the rest are reported for
-completeness and as a reproducibility anchor.
-
-The retriever metrics carry no such bias: they compare retrieved text against
-gold text, and length of the generated answer is irrelevant to them.
-
-Run: python3 eval/ragas_nonllm.py
+"""Deterministic ragas metrics, no judge: retrieval (precision/recall vs gold) and answer quality
+(ROUGE/BLEU/string/semantic similarity). ROUGE-family metrics favour short answers -- read with care.
 """
 import json
 import statistics

@@ -1,38 +1,5 @@
-"""Isolated latency probe for global search: where do the 339 seconds go?
-
-The 338.7s mean reported for the global arm is wall time from an eval loop, and
-wall time conflates three different things:
-
-  1. genuine model latency        — how long Azure takes to answer a map call
-  2. the client-side rate limiter — fnllm books tokens_per_minute BEFORE
-     issuing a call, so a large map fan-out queues against its own budget
-  3. structural serialisation     — the reduce step cannot start until every
-     map call has returned, so the critical path is (slowest map) + reduce
-
-Only (1) and (3) are properties of the method. (2) is a property of THIS
-deployment's quota and would vanish on a higher tier, so quoting it as "global
-search takes 5.6 minutes" overstates the method's cost.
-
-The probe measures all three by wrapping the chat model and recording an
-interval per call. Nothing else runs concurrently; queries are issued one at a
-time, exactly as the eval loop did.
-
-  wall            end-to-end
-  busy            union of all call intervals — time at least one call in flight
-  sum_durations   total API time; sum/wall is the achieved parallelism
-  critical path   max map duration + reduce duration, the floor the method
-                  cannot go below however much quota you throw at it
-  stall           wall - busy, time NO call was in flight: rate-limiter queueing
-
-Run twice, once as configured and once with the limiter lifted, and the gap
-between them is the quota tax:
-
-  .venv-graphrag/bin/python eval/latency_probe.py                 # as configured
-  .venv-graphrag/bin/python eval/latency_probe.py --unthrottled   # limiter lifted
-
---unthrottled raises rpm/tpm only. Model parameters are untouched: they are part
-of GraphRAG's cache key, and changing one silently invalidates the index cache
-(learned the expensive way during indexing).
+"""Isolated latency probe for global search: separates genuine model latency and structural
+serialisation (method properties) from rate-limiter queueing (a quota artefact) via --unthrottled.
 """
 import argparse
 import asyncio
@@ -53,8 +20,7 @@ from graphrag.language_model.manager import ModelManager  # noqa: E402
 
 OUT = Path(__file__).parent / "results_latency_probe.json"
 
-# Deliberately NOT from test_book_v3: those questions have been run before, and
-# a cache hit would report a latency of zero and prove nothing.
+# Not from test_book_v3: a cache hit on a repeat question would report zero latency.
 PROBE_QUESTION = (
     "Across these publications, how do the documents differ in how much they "
     "rely on quantitative versus qualitative assessment?"
@@ -154,8 +120,7 @@ def analyse(wall: float, label: str) -> dict:
     durations = sorted(c["duration"] for c in done)
     busy = _union(intervals)
 
-    # The reduce step is the final call and cannot overlap the map phase; every
-    # earlier call is map (or dynamic-selection rating).
+    # Reduce is the final call and cannot overlap map; every earlier call is map (or rating).
     reduce_d = durations and done[-1]["duration"] or 0.0
     map_calls = done[:-1]
     slowest_map = max((c["duration"] for c in map_calls), default=0.0)

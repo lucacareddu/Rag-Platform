@@ -1,17 +1,5 @@
-"""Structural fit diagnostics straight from GraphRAG parquet. No Azure calls.
-
-Same measurements the Neo4j branch ran against the loaded graph, computed here
-from the index artifacts so any GraphRAG root can be checked without a database.
-
-The point is to test a prediction rather than describe a corpus. The cheap
-screener (neo4j_rag/screen_corpus.py) read 5.6% multi-document entities on the
-NIST corpus and 9.2% on the incident corpus, from samples costing ~$0.01 each,
-and claimed the second would fit GraphRAG better. The NIST index later measured
-7.9% on the full graph. Running the same full measurement here says whether the
-screener's ordering held on a corpus it had never seen -- which is the only way
-to find out if it predicts or merely describes.
-
-Run: .venv-graphrag/bin/python eval/corpus_fit_parquet.py graphrag_incidents
+"""Structural fit diagnostics from GraphRAG parquet, no Azure calls: tests whether
+screen_corpus.py's cheap prediction holds against the full measured index.
 """
 import statistics
 import sys
@@ -75,8 +63,7 @@ def main():
     print(f"    median degree                  {statistics.median(degrees):>6.1f}")
     print(f"    mean degree                    {statistics.mean(degrees):>6.1f}")
 
-    # Relationships whose endpoints live in different documents are literal
-    # cross-document bridges -- what global search exploits.
+    # Endpoints in different documents = a literal cross-document bridge.
     docs_of = dict(zip(ent["title"], ent["ndocs"]))
     ent_docs = {}
     for r in ent.itertuples():

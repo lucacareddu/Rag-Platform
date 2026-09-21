@@ -1,25 +1,5 @@
-"""Re-score saved GraphRAG answers with a corrected judging procedure.
-
-Two defects in the first scoring pass made cross-arm comparison invalid:
-
-1. Citation bias. GraphRAG answers carry inline provenance markers such as
-   "[Data: Reports (2, 6); Entities (11)]". The judge docked points for them —
-   its own stated reason on Q2 was that the answer "restates with [Data:
-   Sources ...] annotations not in the expected". Local and global search emit
-   far more of these than basic search does, so the metric was systematically
-   penalising the arms that cite their evidence. Markers are stripped from
-   every arm before judging.
-
-2. Judge variance. gpt-5 models reject any temperature other than 1, so the
-   judge cannot be made deterministic. Re-measuring one unchanged test case
-   returned 0.5 and then 0.3 — a swing large enough to reorder arms. Each
-   metric is therefore sampled `SAMPLES` times and the median is kept, with
-   the spread recorded so the noise floor is visible rather than assumed.
-
-Retrieval is not repeated: answers come from results_graphrag.json, where a
-single global-search query cost 254 seconds.
-
-Run: .venv-graphrag/bin/python eval/rescore.py [--samples 3]
+"""Re-score saved answers, fixing two defects: citation-marker bias (stripped before judging)
+and judge variance (gpt-5 forces temperature=1, so each metric is sampled and medianed).
 """
 import argparse
 import json
@@ -52,8 +32,7 @@ def build_metrics(judge):
     from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric, GEval
     from deepeval.test_case import LLMTestCaseParams as P
 
-    # Rubric anchors give the judge fixed reference points instead of letting
-    # it invent a scale each call, which is where much of the variance came from.
+    # Rubric anchors give the judge fixed reference points instead of inventing a scale each call.
     correctness = GEval(
         name="correctness",
         model=judge,

@@ -1,25 +1,5 @@
-"""Official Microsoft GraphRAG: vector baseline vs local search vs global search.
-
-Three arms, one index, one pair of models:
-
-  basic  — GraphRAG's basic_search. Plain vector RAG over the same text units,
-           the same embedding model and the same chat model. This is the
-           control. Using it instead of our own Qdrant pipeline removes the
-           confound that sank earlier comparisons: chunking, embedder and
-           generator are identical across arms, so any difference is
-           attributable to retrieval strategy alone.
-  local  — GraphRAG local search: entity-anchored, mixes entities,
-           relationships, community reports and source text.
-  global — GraphRAG global search: map-reduce over community reports. This is
-           the capability a vector index structurally cannot provide, and the
-           only arm expected to win the corpus-level questions.
-
-Scoring is DeepEval with Azure gpt-5-nano as judge (see azure_judge.py).
-Non-LLM context metrics are deliberately absent: they compare retrieved text to
-gold chunks, and community reports are not chunks, so they would score global
-search 0.000 by construction rather than by performance.
-
-Run: .venv-graphrag/bin/python eval/compare_graphrag.py [--arms basic,local,global]
+"""Official Microsoft GraphRAG: basic (vector control) vs local (entity-anchored) vs global
+(map-reduce over community reports), one index and model pair, judged by azure_judge.py.
 """
 import argparse
 import asyncio
@@ -88,8 +68,7 @@ def _context_strings(context) -> list[str]:
             out.append(str(f))
         elif isinstance(f, dict):
             out += _context_strings(f)
-    # Faithfulness judges every context string; cap so one arm is not charged
-    # 10x the others purely for returning a bigger payload.
+    # Capped so one arm isn't charged 10x others purely for returning a bigger payload.
     return [s for s in out if s.strip()][:60]
 
 
@@ -99,16 +78,13 @@ async def run_arm(arm: str, question: str, cfg, art) -> dict:
         resp, ctx = await api.basic_search(
             config=cfg, text_units=art["text_units"], query=question)
     elif arm == "basic_k40":
-        # Budget-matched vector RAG. BOTH knobs are needed: the default is
-        # k=10 AND max_context_tokens=12000, and with 1200-token chunks the
-        # token cap binds first, so raising k alone changes nothing.
+        # Both knobs needed: default max_context_tokens=12000 binds before k, so k alone does nothing.
         cfg.basic_search.k = 40
         cfg.basic_search.max_context_tokens = 50_000
         resp, ctx = await api.basic_search(
             config=cfg, text_units=art["text_units"], query=question)
     elif arm == "global_c0":
-        # Root communities only -- the configuration Edge et al. recommend,
-        # and ~15x cheaper than level 2 with comparable measured quality.
+        # Root communities only -- Edge et al.'s recommendation, ~15x cheaper than level 2.
         resp, ctx = await api.global_search(
             config=cfg, entities=art["entities"], communities=art["communities"],
             community_reports=art["community_reports"],
@@ -128,11 +104,8 @@ async def run_arm(arm: str, question: str, cfg, art) -> dict:
             community_level=COMMUNITY_LEVEL, dynamic_community_selection=False,
             response_type=RESPONSE_TYPE, query=question)
     elif arm == "dynamic":
-        # Global search with the hierarchical tree walk: rate the 26 root
-        # communities for relevance, descend only into the children of those
-        # that clear the threshold, instead of map-reducing over all 540.
-        # Measured on one question against the static arm: 30 calls vs 43,
-        # 87k input tokens vs 521k, 30s vs 259s.
+        # Rate root communities, descend only into children that clear threshold, instead of
+        # map-reducing over all 540 (measured: 30 calls/87k tokens/30s vs 43/521k/259s).
         resp, ctx = await api.global_search(
             config=cfg, entities=art["entities"], communities=art["communities"],
             community_reports=art["community_reports"],
@@ -170,7 +143,7 @@ def build_metrics(judge):
             "Do not penalise extra correct detail, different wording, or a different order of presentation.",
         ],
     )
-    # The GraphRAG paper's own head-to-head criteria for sensemaking questions.
+    # Edge et al.'s own head-to-head criteria for sensemaking questions.
     comprehensiveness = GEval(
         name="comprehensiveness",
         model=judge,

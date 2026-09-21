@@ -1,15 +1,5 @@
-"""Azure gpt-5-nano as a DeepEval judge model.
-
-DeepEval's built-in Azure model cannot be used here. It sends `temperature=0`
-and omits `reasoning_effort`, and gpt-5-nano rejects the first and needs the
-second: at its default reasoning effort it spends the whole completion budget
-on hidden reasoning tokens and returns an empty string. A judge that silently
-returns "" scores every test case as a parse failure, which is indistinguishable
-from a genuinely bad answer — so this wrapper is what keeps the evaluation
-honest rather than merely working.
-
-Credentials are read from the azure*.txt files in the repo parent, the same
-source the GraphRAG workspace uses, so there is one place to rotate them.
+"""Azure gpt-5-nano as a DeepEval judge. DeepEval's built-in Azure model sends temperature=0 and
+omits reasoning_effort, both fatal to gpt-5-nano (rejects the first, returns empty on the second).
 """
 import random
 import re
@@ -25,7 +15,7 @@ _CRED_DIR = Path(__file__).resolve().parents[2]
 
 
 def _load_credentials() -> dict:
-    """Prefers the GraphRAG workspace .env, falls back to the raw azure*.txt."""
+    """Prefers the GraphRAG .env, falls back to azure*.txt."""
     env = Path(__file__).resolve().parents[1] / "graphrag" / ".env"
     if env.exists():
         vals = dict(
@@ -75,11 +65,9 @@ class AzureGPT5Nano(DeepEvalBaseLLM):
         kw = {
             "model": self.cred["deployment"],
             "messages": [{"role": "user", "content": prompt}],
-            # Mandatory. Without it the model emits reasoning tokens until it
-            # hits the cap and returns nothing at all.
+            # Mandatory -- without it the model burns the cap on reasoning and returns nothing.
             "reasoning_effort": "minimal",
-            # gpt-5 accepts only the default temperature; and the budget is
-            # counted as completion tokens, not `max_tokens`.
+            # gpt-5 accepts only default temperature; budget is completion tokens, not max_tokens.
             "max_completion_tokens": 4000,
         }
         if schema is not None:
@@ -130,8 +118,7 @@ class AzureGPT5Nano(DeepEvalBaseLLM):
             self._retry(lambda: self._sync.chat.completions.create(**kw)), None)
 
     async def a_generate(self, prompt: str, schema: type[BaseModel] | None = None):
-        # DeepEval is driven synchronously here (async_mode=False on every
-        # metric), so the sync path carries the retry logic and this delegates.
+        # Sync path carries the retry logic (async_mode=False on every metric); this delegates.
         return self.generate(prompt, schema)
 
 

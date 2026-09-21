@@ -1,30 +1,5 @@
-"""Head-to-head comparison of GraphRAG arms, after absolute scoring failed.
-
-Absolute GEval scoring could not separate these arms. Measured on the corrected
-rubric with 5 samples per metric, the judge's own spread on an unchanged test
-case averaged 0.24 while the gap between arms averaged 0.10 — the differences
-sat inside the noise. The variance comes from gpt-5's forced temperature=1 and
-survives more reasoning effort, so sampling harder was not going to fix it.
-
-Pairwise judging asks a strictly easier question. Instead of calibrating a
-number, the judge reads two answers and says which is better. That removes the
-need for a stable internal scale, and it is the protocol the GraphRAG paper
-itself uses for sensemaking questions.
-
-Controls:
-- Position randomisation. LLM judges favour whichever answer is shown first,
-  so each pair is judged in both orders and the orders are pooled. A win only
-  counts as a win if it survives the swap; systematic position bias shows up
-  as a high tie/disagreement rate rather than silently inflating one arm.
-- Citations stripped, as in rescore.py, so an arm is not judged on how much
-  provenance markup it emits.
-- Blind labels. Answers are presented as "Answer A"/"Answer B" with no mention
-  of which retrieval strategy produced them.
-
-Criteria follow the paper: comprehensiveness, diversity, empowerment and
-directness.
-
-Run: .venv-graphrag/bin/python eval/pairwise.py [--repeats 2] [--workers 6]
+"""Pairwise head-to-head judging (absolute GEval scoring's noise exceeded the gap between arms).
+Position-randomised and citation-stripped; criteria follow Edge et al.'s sensemaking rubric.
 """
 import argparse
 import itertools
@@ -99,8 +74,7 @@ def _compare(task) -> dict:
     out = {"id": r["id"], "tier": r["tier"], "question": r["question"],
            "pair": [x, y], "repeat": rep, "verdicts": {}}
 
-    # Order 1: x shown as A. Order 2: y shown as A. Pooling the two cancels
-    # the judge's preference for whichever answer it reads first.
+    # Order 1: x as A. Order 2: y as A. Pooling cancels the judge's position preference.
     v1 = _judge_once(judge, r["question"], ax, ay)
     v2 = _judge_once(judge, r["question"], ay, ax)
 
@@ -125,10 +99,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repeats", type=int, default=2)
     ap.add_argument("--workers", type=int, default=6)
-    # The budget controls (basic_k40, global_c0) live in a second results file
-    # and need the same judging protocol, so the inputs are parameterised
-    # rather than the script copied. --merge unions the arms of both files on
-    # question id, which is what makes a cross-file pair judgeable at all.
+    # Inputs are parameterised (not the script copied) so the budget-control results file
+    # can be judged the same way; --merge unions arms across files by question id.
     ap.add_argument("--results", help="answers file to judge (default: results_graphrag.json)")
     ap.add_argument("--merge", help="second results file to union arms from")
     ap.add_argument("--arms", help="comma-separated arms to compare")

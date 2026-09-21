@@ -1,35 +1,5 @@
-"""Two controls the original comparison was missing.
-
-Both exist because the first round compared arms that were never given equal
-resources, so "the graph wins sensemaking" was confounded with "the graph arm
-read far more of the corpus".
-
-  global_c0   Global search over ROOT communities only (level 0, 26 reports)
-              instead of level <=2 (540 reports). This is the configuration
-              Edge et al. actually recommend: their Table 2 puts root-level
-              summaries at 2.3-2.6% of full-corpus token cost while retaining a
-              72%/62% win rate over vector RAG on comprehensiveness/diversity.
-              Everything reported so far ran at level 2, which their own table
-              places at 55-57% of full cost -- the second most expensive
-              setting available. The measured 693k prompt tokens per question
-              was therefore substantially a configuration choice, not an
-              inherent property of the method.
-
-  basic_k40   Plain vector RAG with the context cap lifted. The default is
-              k=10 AND max_context_tokens=12000; with 1200-token chunks the
-              TOKEN CAP binds first, which is why the basic arm returned ~9
-              items regardless of k. Raising k alone changes nothing. This arm
-              raises both, so vector RAG gets a context budget in the same
-              league as the graph arms.
-
-The question each answers:
-
-  If basic_k40 closes the sensemaking gap, the graph never contributed
-  structure -- it contributed context volume, and the fix is a bigger top_k.
-  If global_c0 matches global at 1/20th the reports, the cost objection to
-  global search was an artefact of my configuration rather than the method.
-
-Run: .venv-graphrag/bin/python eval/budget_test.py
+"""Two controls for equal-resource comparison: global_c0 (root communities only, Edge et al.'s
+recommended level) and basic_k40 (vector RAG with the token cap lifted, not just k).
 """
 import asyncio
 import json
@@ -54,8 +24,7 @@ OUT = Path(__file__).parent / "results_budget.json"
 NEW_ARMS = ["basic_k40", "global_c0"]
 RESPONSE_TYPE = "Multiple Paragraphs"
 
-# Roughly global's own budget: 40 chunks x ~1200 tokens. The point is parity of
-# context volume, not a round number.
+# ~global's own budget (40 chunks x ~1200 tokens) -- parity of context volume, not a round number.
 BASIC_K = 40
 BASIC_MAX_CONTEXT_TOKENS = 50_000
 

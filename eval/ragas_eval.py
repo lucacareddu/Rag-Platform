@@ -1,43 +1,5 @@
-"""Ragas evaluation, including the retrieval measurement the other passes skipped.
-
-Everything reported so far scored end-to-end answers. Retrieval was never
-measured on its own, because the context metrics were dropped early with the
-argument that community reports are not chunks. That is true for the global and
-dynamic arms, but it also silently excused basic and local, where retrieval is
-chunk-based and perfectly measurable.
-
-Two families run here:
-
-  RETRIEVER (non-LLM, string overlap against gold text units)
-    context_precision — of what was retrieved, how much was gold
-    context_recall    — of the gold, how much was retrieved
-  Meaningful only for chunk-retrieving arms on questions that have an
-  answer-bearing chunk. Reported for the graph arms too, clearly labelled,
-  because their near-zero scores are a property of what they retrieve rather
-  than a measure of how well they retrieve it.
-
-  ANSWER (LLM-judged, Azure gpt-5-nano)
-    faithfulness       — is the answer grounded in its own retrieved context
-    response_relevancy — does the answer address the question
-    llm_context_precision / llm_context_recall — context judged against the
-      reference ANSWER rather than gold chunks, so these apply to all four arms
-      including the ones that retrieve community reports.
-
-Context selection differs by metric family, for two measured reasons.
-
-The retriever metrics see the FULL retrieved context. They cost nothing to run,
-and a naive 20-item cap was a measurement bug: local search orders its context
-as community report, then dozens of short entity and relationship strings, with
-the actual source text units LAST. A head-only cap discarded precisely the
-chunks the gold set scores, and local reported 0.000 on both metrics for
-reasons unrelated to its retrieval.
-
-The LLM metrics take a bounded HEAD-AND-TAIL sample instead.
-LLMContextPrecisionWithReference issues one sequential LLM call per context
-item, so passing everything meant 46 calls for local against 6 for basic — ~30
-minutes for a single local arm-result, and an unequal judge budget. It also
-distorts the metric: context precision averages per-item verdicts, so an arm
-returning 46 short entity strings scores low against one returning 6
+"""Ragas evaluation, including retrieval (skipped by earlier passes): non-LLM context metrics
+vs gold chunks, plus LLM-judged faithfulness/relevancy applicable to all four arms.
 substantial chunks, measuring verbosity rather than retrieval quality. Sampling
 from both ends bounds the call count equally across arms while keeping local's
 trailing source units in view.
@@ -82,12 +44,7 @@ def build():
                                ResponseRelevancy, SemanticSimilarity)
 
     c, e = _load_credentials(), _embed_credentials()
-    # temperature=1 and reasoning_effort=minimal are forced by gpt-5-nano; see
-    # azure_judge.py. max_retries covers the 429s that many workers provoke.
-    # bypass_temperature stops ragas overwriting temperature per call — it sets
-    # 0.01 by default, which gpt-5-nano rejects outright with a 400. bypass_n
-    # likewise: the model does not take an `n` parameter. Both flags exist in
-    # ragas for the o1 series and apply unchanged here.
+    # bypass_temperature/bypass_n stop ragas overwriting params gpt-5-nano rejects (temp != 1, `n`).
     llm = LangchainLLMWrapper(
         AzureChatOpenAI(
             azure_endpoint=c["endpoint"], api_key=c["api_key"], api_version=c["api_version"],
@@ -103,10 +60,7 @@ def build():
             "context_precision": NonLLMContextPrecisionWithReference(),
             "context_recall": NonLLMContextRecall(),
         },
-        # Retriever metrics that need an LLM. context_entity_recall asks how
-        # many entities of the reference appear in the retrieved context — the
-        # most directly relevant retrieval measure for a graph index, since
-        # entities are what it organises around.
+        # context_entity_recall: how many reference entities appear in retrieved context.
         "retriever_llm": {
             "context_entity_recall": ContextEntityRecall(llm=llm),
             "llm_context_precision": LLMContextPrecisionWithReference(llm=llm),
@@ -115,10 +69,7 @@ def build():
         "answer": {
             "faithfulness": Faithfulness(llm=llm),
             "response_relevancy": ResponseRelevancy(llm=llm, embeddings=emb),
-            # ragas' own correctness, so the conclusion does not rest on a
-            # single framework's judgement: it decomposes both answer and
-            # reference into claims and scores their overlap, where DeepEval's
-            # GEval asks one model for a holistic number.
+            # ragas' own correctness: claim-overlap scoring, vs DeepEval's holistic GEval number.
             "factual_correctness": FactualCorrectness(llm=llm),
             "semantic_similarity": SemanticSimilarity(embeddings=emb),
         },
@@ -132,8 +83,7 @@ def _score_one(task, metrics):
     d = row["arms"][arm]
     full = d["retrieval_context"] or ["(no context returned)"]
 
-    # Head-and-tail sample: equal judge budget per arm, and local's source
-    # text units live at the tail of its payload. See the module docstring.
+    # Head-and-tail sample: equal judge budget per arm; local's source text sits at the tail.
     if len(full) <= LLM_CONTEXT_ITEMS:
         capped = list(full)
     else:
