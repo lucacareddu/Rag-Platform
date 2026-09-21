@@ -8,3 +8,4 @@ documents/*
 apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
+.venv-neo4j/
