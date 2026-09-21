@@ -209,6 +209,8 @@ async def main():
                     help="raise rpm/tpm to isolate the quota tax")
     ap.add_argument("--dynamic", action="store_true",
                     help="probe the dynamic-selection arm instead")
+    ap.add_argument("--level", type=int, default=2,
+                    help="community level: 0 = root (26 reports), 2 = 540")
     ap.add_argument("--question", default=PROBE_QUESTION)
     args = ap.parse_args()
 
@@ -228,7 +230,7 @@ async def main():
     art = {n: pd.read_parquet(out / f"{n}.parquet")
            for n in ["entities", "communities", "community_reports"]}
 
-    label = ("dynamic" if args.dynamic else "global") + \
+    label = ("dynamic" if args.dynamic else f"global c{args.level}") + \
             (" / limiter lifted" if args.unthrottled else " / as configured")
     print(f"probing: {label}", file=sys.stderr)
     print(f"question: {args.question}", file=sys.stderr)
@@ -237,7 +239,7 @@ async def main():
     t0 = time.perf_counter()
     resp, _ = await api.global_search(
         config=cfg, entities=art["entities"], communities=art["communities"],
-        community_reports=art["community_reports"], community_level=2,
+        community_reports=art["community_reports"], community_level=args.level,
         dynamic_community_selection=args.dynamic,
         response_type="Multiple Paragraphs", query=args.question)
     wall = time.perf_counter() - t0
