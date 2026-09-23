@@ -262,6 +262,7 @@ Arm A needs `GRAPHRAG_ARTIFACTS` pointed at a copy of `feat_graphrag`'s
 APOC installed — `apoc.merge.relationship` is an unconditional dependency of the
 library's writer. Deps live in a local, gitignored `.venv-neo4j`.
 
-Eval result JSON is gitignored; rerun the scripts to regenerate it. The test book
+Eval result JSON is gitignored, as is the gold-context set that
+`gold_context.py` derives from the index; rerun the scripts to regenerate them. The test book
 the scripts read is gitignored too — build it with `eval/build_test_book.py` from
 `feat_neo4j_ours`.
