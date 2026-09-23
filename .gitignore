@@ -11,6 +11,7 @@ apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
 .env.*
+!.env.example
 .deepeval/
 
 # Large, rebuildable experiment venvs from other branches' work.
