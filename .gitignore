@@ -12,3 +12,11 @@ apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
 .env.*
 .deepeval/
+
+# Large, rebuildable experiment venvs from other branches' work.
+.venv-graphrag/
+.venv-neo4j/
+
+# GraphRAG corpora/output tracked only on the branches that use them.
+/graphrag/
+/graphrag_incidents/
