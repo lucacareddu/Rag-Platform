@@ -11,12 +11,14 @@ apps/chat-ui/static-app/
 
 # Any .env.<suffix> may hold live credentials; the template is the exception.
 .env.*
+!.env.example
 .deepeval/
 
 # Large, rebuildable experiment venvs.
 .venv-graphrag/
 .venv-neo4j/
 
-# Local eval scratch output not tracked by this branch.
+# Generated eval inputs and output — rebuild with the eval/ scripts.
 eval/results*.json
 eval/test_book*.json
+eval/gold_context.json

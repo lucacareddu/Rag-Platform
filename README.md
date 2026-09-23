@@ -260,7 +260,8 @@ local, global, dynamic global), scored against the plain Qdrant baseline.
 Under each index root only `settings.yaml` and `prompts/` are tracked. `input/`,
 `output/`, `cache/` and `logs/` are large, rebuildable and gitignored — 341M and
 59M locally, three quarters of it the embedding cache. Eval result JSON is
-gitignored too; rerun the scripts to regenerate it.
+gitignored too, as is the gold-context set that
+`gold_context.py` derives from the index; rerun the scripts to regenerate them.
 
 Azure credentials come from `graphrag/.env` (`GRAPHRAG_API_KEY`,
 `GRAPHRAG_API_BASE`, `GRAPHRAG_API_VERSION`, `GRAPHRAG_DEPLOYMENT`). Deps live in
