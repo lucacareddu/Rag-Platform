@@ -1,5 +1,9 @@
 # Local RAG Platform
 
+> **Experiment branch — not for production.** Adds the `neo4j-graphrag` library
+> arm of a vector-vs-graph retrieval comparison: evaluation code only. Nothing
+> here is built or deployed by CI; the platform sections below describe `main`.
+
 GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
 Agentic RAG via LangGraph. LLM via the Gemini API (OpenAI-compatible),
 with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5xx,
@@ -238,3 +242,26 @@ fallback triggers, so you can monitor how often you're hitting Gemini's rate lim
 
 Set `LANGSMITH_API_KEY` to enable it; leave blank to disable tracing with zero
 code changes. Sign up at https://smith.langchain.com
+
+## neo4j-graphrag experiment (this branch)
+
+Neo4j's official `neo4j-graphrag 1.19.0` library, measured two ways against the
+Microsoft GraphRAG index built on `feat_graphrag`.
+
+- Arm A (`neo4j_rag/load_graphrag.py`) — bulk-loads GraphRAG's existing parquet +
+  LanceDB artifacts into Neo4j. No extraction, no LLM calls, so any difference
+  against GraphRAG is attributable to retrieval alone.
+- Arm B (`neo4j_rag/build_kg.py`) — extracts a fresh graph with
+  `SimpleKGPipeline`, then compares the two extractions (`eval_ab.py`).
+- `neo4j_rag/screen_corpus.py`, `corpus_fit.py` — score how graph-shaped a corpus
+  is before paying to index it.
+- `eval/gold_context.py` — exact-chunk retrieval scoring (`eval_retrieval.py`).
+
+Arm A needs `GRAPHRAG_ARTIFACTS` pointed at a copy of `feat_graphrag`'s
+`graphrag/output/`; the built-in default is a stale scratchpad path. Neo4j needs
+APOC installed — `apoc.merge.relationship` is an unconditional dependency of the
+library's writer. Deps live in a local, gitignored `.venv-neo4j`.
+
+Eval result JSON is gitignored; rerun the scripts to regenerate it. The test book
+the scripts read is gitignored too — build it with `eval/build_test_book.py` from
+`feat_neo4j_ours`.
