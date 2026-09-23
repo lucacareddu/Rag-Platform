@@ -1,5 +1,9 @@
 # Local RAG Platform
 
+> **Experiment branch — not for production.** The handcrafted Qdrant + Neo4j
+> retrieval arm, kept as the baseline the library implementations on
+> `feat_neo4j` and `feat_graphrag` are measured against.
+
 GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
 Agentic **GraphRAG** via LangGraph: vector retrieval from Qdrant, then expansion
 through a Neo4j knowledge graph built from the same documents. LLM via the Gemini
@@ -339,3 +343,16 @@ fallback triggers, so you can monitor how often you're hitting Gemini's rate lim
 
 Set `LANGSMITH_API_KEY` to enable it; leave blank to disable tracing with zero
 code changes. Sign up at https://smith.langchain.com
+
+## Eval harness
+
+- `eval/build_test_book.py` — builds the test book from the live corpus, storing
+  gold contexts as resolvable chunk ids rather than pasted text, which
+  re-chunking silently invalidated.
+- `eval/compare.py` — vector-only vs vector+graph retrieval on five non-LLM ragas
+  metrics (context precision/recall, string similarity, BLEU, ROUGE), so scoring
+  costs no LLM quota.
+- `eval/compare_deepeval.py` — same two retrievers scored with DeepEval's
+  LLM-judged contextual metrics, judged locally by Ollama for the same reason.
+
+Test books and result JSON are gitignored; rerun the scripts to regenerate them.
