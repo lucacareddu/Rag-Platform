@@ -1,5 +1,10 @@
 # Local RAG Platform
 
+> **Experiment branch — not for production.** Adds the official Microsoft
+> GraphRAG arm of a vector-vs-graph retrieval comparison: index config and
+> evaluation code only. Nothing here is built or deployed by CI; the platform
+> sections below describe `main`.
+
 GitLab CI/CD -> GitLab Container Registry -> GitOps repo -> Argo CD -> k3s.
 Agentic RAG via LangGraph. LLM via the Gemini API (OpenAI-compatible),
 with automatic fallback to a local Ollama model if Gemini errors (rate limit, 5xx,
@@ -238,3 +243,27 @@ fallback triggers, so you can monitor how often you're hitting Gemini's rate lim
 
 Set `LANGSMITH_API_KEY` to enable it; leave blank to disable tracing with zero
 code changes. Sign up at https://smith.langchain.com
+
+## GraphRAG experiment (this branch)
+
+`graphrag 2.7.2` indexed over two corpora and queried in four modes (basic,
+local, global, dynamic global), scored against the plain Qdrant baseline.
+
+- `graphrag/` — index root for the 11 NIST standards in `documents/manuals/`.
+- `graphrag_incidents/` — index root for 19 Wikipedia breach articles, added as
+  an entity-dense contrast to NIST's homogeneous standards prose.
+- `eval/` — ragas and LLM-judge scoring (`compare_graphrag.py`), pairwise
+  head-to-head (`pairwise.py`), budget-matched and latency controls
+  (`budget_test.py`, `latency_probe.py`), hallucination and citation checks
+  (`hallucination_check.py`).
+
+Under each index root only `settings.yaml` and `prompts/` are tracked. `input/`,
+`output/`, `cache/` and `logs/` are large, rebuildable and gitignored — 341M and
+59M locally, three quarters of it the embedding cache. Eval result JSON is
+gitignored too; rerun the scripts to regenerate it.
+
+Azure credentials come from `graphrag/.env` (`GRAPHRAG_API_KEY`,
+`GRAPHRAG_API_BASE`, `GRAPHRAG_API_VERSION`, `GRAPHRAG_DEPLOYMENT`). Deps live in
+a local `.venv-graphrag` (`graphrag`, `ragas`, `deepeval`), also gitignored. The
+test book the eval scripts read is gitignored as well — build it with
+`eval/build_test_book.py` from `feat_neo4j_ours`.
