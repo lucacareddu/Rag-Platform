@@ -9,3 +9,18 @@ apps/chat-ui/db.sqlite3
 apps/chat-ui/staticfiles/
 apps/chat-ui/static-app/
 .venv-neo4j/
+
+# Any .env.<suffix> may hold live credentials; the template is the exception.
+.env.*
+.deepeval/
+
+# Large, rebuildable experiment venv from another branch's work.
+.venv-graphrag/
+
+# GraphRAG output read via GRAPHRAG_ARTIFACTS but not tracked by this branch.
+/graphrag/
+/graphrag_incidents/
+
+# Local eval scratch output from other branches' work.
+eval/results*.json
+eval/test_book*.json
