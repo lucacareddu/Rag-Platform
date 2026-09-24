@@ -206,8 +206,8 @@ more headroom and want better fallback quality, swap `ollama.model` in
 `values.yaml` (or `OLLAMA_MODEL` in `.env` for local dev) for something larger,
 e.g. `phi4-mini` (~3.2GB, stronger reasoning).
 
-GPU passthrough is **not** configured by default (`ollama.gpu: false`) — Ollama
-runs on CPU unless enabled.
+GPU passthrough is **on** in the chart default (`ollama.gpu: true` in
+`values.yaml`) and in the `test` overlay; `values-main.yaml` pins it to `false`.
 
 **k3s**: this chart includes the `RuntimeClass` and NVIDIA device plugin needed —
 see `gitops/README.md`'s "Enabling GPU inference" section for the node-level
@@ -226,7 +226,14 @@ fall back to CPU. Keeping it as an opt-in overlay means the default
 
 CPU inference on gemma2:2b is slower but functional either way. First pull of the
 model (either environment) takes a minute or two and is cached afterward (Docker
-named volume / k3s PVC).
+named volume / k3s PVC). After the pull, the model is also loaded into memory
+immediately (`OLLAMA_KEEP_ALIVE=-1`, plus a warmup call at startup) so the first
+real request isn't the one paying for the load.
+
+Note that `OLLAMA_KEEP_ALIVE=-1` means the model is never unloaded. Under k3s
+that is bounded by `ollama.memoryLimit` (3Gi in the `test` overlay), so the pod
+is capped. `docker-compose.yml` sets no memory limit, so on a small host the
+resident model competes with everything else for RAM.
 
 ## Monitoring with LangSmith
 
